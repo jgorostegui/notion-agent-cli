@@ -1,20 +1,60 @@
 #!/usr/bin/env node
 /**
  * Notion Agent CLI — Setup
- * Validates token, tests connection, writes .env
+ * Installs runtime deps if needed, validates token, writes plugin-root .env
  *
  * Usage:
- *   node setup.mjs                              # interactive prompt
- *   echo "ntn_xxx" | node setup.mjs --with-token  # stdin (agent-friendly, no process list leak)
- *   node setup.mjs --status                     # check current auth
+ *   node scripts/setup.mjs                         # install deps + secure prompt
+ *   printf '%s\n' "ntn_xxx" | node scripts/setup.mjs --with-token
+ *   node scripts/setup.mjs --status
  */
 
 import { createInterface } from "readline";
-import { writeFile, mkdir, readFile } from "fs/promises";
-import { join, dirname } from "path";
-import { Client } from "@notionhq/client";
+import { writeFile, mkdir, readFile, access, chmod } from "fs/promises";
+import { join, dirname, resolve } from "path";
+import { fileURLToPath } from "url";
+import { execFileSync, spawnSync } from "child_process";
 
-const root = process.env.CLAUDE_PLUGIN_ROOT || process.cwd();
+const root = process.env.CLAUDE_PLUGIN_ROOT
+  || resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const envPath = join(root, ".env");
+
+function fileExists(path) {
+  return access(path).then(() => true).catch(() => false);
+}
+
+async function hasRuntimeDeps() {
+  return fileExists(join(root, "node_modules", "@notionhq", "client"));
+}
+
+async function ensureDependencies() {
+  if (await hasRuntimeDeps()) return;
+
+  const hasLockfile = await fileExists(join(root, "package-lock.json"));
+  const args = hasLockfile
+    ? ["ci", "--omit=dev", "--no-fund", "--no-audit", "--loglevel=error"]
+    : ["install", "--omit=dev", "--no-fund", "--no-audit", "--loglevel=error"];
+
+  console.log("Installing plugin dependencies...");
+  const result = spawnSync("npm", args, {
+    cwd: root,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+
+  if (result.status !== 0 || !(await hasRuntimeDeps())) {
+    throw new Error("Dependency installation failed.");
+  }
+}
+
+let ClientClass = null;
+
+async function getClientClass() {
+  if (ClientClass) return ClientClass;
+  await ensureDependencies();
+  ({ Client: ClientClass } = await import("@notionhq/client"));
+  return ClientClass;
+}
 
 async function readStdin() {
   const chunks = [];
@@ -22,12 +62,48 @@ async function readStdin() {
   return Buffer.concat(chunks).toString("utf-8").trim();
 }
 
+async function readStdinIfPiped() {
+  if (process.stdin.isTTY) return "";
+  return readStdin();
+}
+
+async function ask(question, { hidden = false } = {}) {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  let echoDisabled = false;
+
+  try {
+    if (hidden && process.stdin.isTTY && process.platform !== "win32") {
+      execFileSync("stty", ["-echo"], { stdio: "inherit" });
+      echoDisabled = true;
+    }
+
+    const answer = await new Promise(resolve => rl.question(question, resolve));
+    if (echoDisabled) process.stdout.write("\n");
+    return answer;
+  } finally {
+    rl.close();
+    if (echoDisabled) {
+      try {
+        execFileSync("stty", ["echo"], { stdio: "inherit" });
+      } catch {}
+    }
+  }
+}
+
+async function promptForToken() {
+  console.log("\nNotion Agent CLI Setup\n");
+  console.log("Create a Notion integration token at:");
+  console.log("https://www.notion.so/profile/integrations\n");
+  console.log("Paste the token when prompted. Input is hidden when supported.\n");
+  return ask("Notion token: ", { hidden: true });
+}
+
 async function loadExistingToken() {
   // Check env var first
   if (process.env.NOTION_TOKEN) return process.env.NOTION_TOKEN;
   // Then .env file
   try {
-    const env = await readFile(join(root, ".env"), "utf-8");
+    const env = await readFile(envPath, "utf-8");
     const match = env.match(/^NOTION_TOKEN=(.+)$/m);
     if (match) return match[1].trim();
   } catch {}
@@ -35,11 +111,13 @@ async function loadExistingToken() {
 }
 
 async function testToken(token) {
+  const Client = await getClientClass();
   const client = new Client({ auth: token, notionVersion: "2025-09-03" });
   return client.users.me({});
 }
 
 async function status() {
+  await ensureDependencies();
   const token = await loadExistingToken();
   if (!token) {
     console.log("Not authenticated.");
@@ -54,15 +132,34 @@ async function status() {
   }
 }
 
+async function resolveTokenInput() {
+  const piped = await readStdinIfPiped();
+  if (piped) return piped;
+
+  if (process.stdin.isTTY && process.stdout.isTTY) {
+    return promptForToken();
+  }
+
+  throw new Error("No token provided. Run interactively or pipe a token to --with-token.");
+}
+
 async function setup(token) {
+  await ensureDependencies();
+
   if (!token) {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    const ask = (q) => new Promise(resolve => rl.question(q, resolve));
-    console.log("\nNotion Agent CLI Setup\n");
-    console.log("You need a Notion integration token.");
-    console.log("Create one at: https://www.notion.so/profile/integrations\n");
-    token = await ask("Enter your Notion token: ");
-    rl.close();
+    const existing = await loadExistingToken();
+    if (existing) {
+      try {
+        const me = await testToken(existing);
+        console.log(`Already authenticated: ${me.name || me.id} (${me.type})`);
+        console.log(`Config path: ${envPath}`);
+        return;
+      } catch {
+        console.log("Stored token is invalid. Enter a new token.\n");
+      }
+    }
+
+    token = await resolveTokenInput();
   }
 
   token = token.trim();
@@ -80,9 +177,9 @@ async function setup(token) {
     process.exit(1);
   }
 
-  const envPath = join(root, ".env");
   await mkdir(dirname(envPath), { recursive: true }).catch(() => {});
   await writeFile(envPath, `NOTION_TOKEN=${token}\n`, "utf-8");
+  await chmod(envPath, 0o600).catch(() => {});
   console.log(`Token saved to ${envPath}`);
   console.log("Remember to share your Notion pages with the integration.");
 }
@@ -92,7 +189,7 @@ const args = process.argv.slice(2);
 if (args.includes("--status")) {
   status().catch(e => { console.error(e); process.exit(1); });
 } else if (args.includes("--with-token")) {
-  readStdin().then(token => setup(token)).catch(e => { console.error(e); process.exit(1); });
+  resolveTokenInput().then(token => setup(token)).catch(e => { console.error(e); process.exit(1); });
 } else {
   setup().catch(e => { console.error(e); process.exit(1); });
 }

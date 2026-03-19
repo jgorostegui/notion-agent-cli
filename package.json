@@ -4,7 +4,8 @@
   "type": "module",
   "main": "scripts/actions.mjs",
   "scripts": {
-    "setup": "npm install && node scripts/setup.mjs",
+    "setup": "node scripts/setup.mjs",
+    "setup:status": "node scripts/setup.mjs --status",
     "test": "node --test tests/**/*.test.mjs tests/**/*.prop.mjs",
     "test:unit": "node --test tests/unit/*.test.mjs",
     "test:prop": "node --test tests/property/*.prop.mjs",
