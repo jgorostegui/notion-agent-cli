@@ -11,7 +11,10 @@
       "source": {
         "source": "github",
         "repo": "jgorostegui/notion-agent-cli"
-      }
+      },
+      "skills": [
+        "./skills/notion-agent-cli"
+      ]
     }
   ]
 }
