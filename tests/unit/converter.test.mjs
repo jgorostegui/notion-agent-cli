@@ -1,8 +1,11 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import {
-  richTextToMd, blocksToMarkdown, textToRichText, markdownToBlocks,
-  makeTextBlock, makeHeadingBlock, makeCodeBlock, recreateBlock,
+  blocksToMarkdown,
+  markdownToBlocks,
+  recreateBlock,
+  richTextToMd,
+  textToRichText,
 } from "../../scripts/actions.mjs";
 
 describe("richTextToMd", () => {
@@ -13,11 +16,13 @@ describe("richTextToMd", () => {
   });
 
   it("applies annotations in correct order: code→bold→italic→strike→underline→link", () => {
-    const rt = [{
-      plain_text: "text",
-      annotations: { code: true, bold: true, italic: true, strikethrough: true, underline: true },
-      href: "https://example.com",
-    }];
+    const rt = [
+      {
+        plain_text: "text",
+        annotations: { code: true, bold: true, italic: true, strikethrough: true, underline: true },
+        href: "https://example.com",
+      },
+    ];
     const result = richTextToMd(rt);
     // code innermost, link outermost
     assert.ok(result.includes("`text`"));
@@ -52,7 +57,7 @@ describe("textToRichText", () => {
   it("preserves content after chunking", () => {
     const text = "x".repeat(3000);
     const result = textToRichText(text);
-    const joined = result.map(r => r.text.content).join("");
+    const joined = result.map((r) => r.text.content).join("");
     assert.equal(joined, text);
   });
 });
@@ -130,10 +135,13 @@ describe("blocksToMarkdown", () => {
   });
 
   it("renders children with indentation", () => {
-    const blocks = [{
-      type: "toggle", toggle: { rich_text: [{ plain_text: "Toggle", annotations: {} }] },
-      children: [{ type: "paragraph", paragraph: { rich_text: [{ plain_text: "child", annotations: {} }] } }],
-    }];
+    const blocks = [
+      {
+        type: "toggle",
+        toggle: { rich_text: [{ plain_text: "Toggle", annotations: {} }] },
+        children: [{ type: "paragraph", paragraph: { rich_text: [{ plain_text: "child", annotations: {} }] } }],
+      },
+    ];
     const md = blocksToMarkdown(blocks);
     assert.ok(md.includes("  child"));
   });
@@ -148,8 +156,15 @@ describe("recreateBlock", () => {
 
   it("strips read-only fields", () => {
     const block = {
-      type: "paragraph", id: "abc", created_time: "t", last_edited_time: "t",
-      created_by: {}, last_edited_by: {}, archived: false, in_trash: false, parent: {},
+      type: "paragraph",
+      id: "abc",
+      created_time: "t",
+      last_edited_time: "t",
+      created_by: {},
+      last_edited_by: {},
+      archived: false,
+      in_trash: false,
+      parent: {},
       paragraph: { rich_text: [{ type: "text", text: { content: "hi" } }], id: "x", created_time: "t" },
     };
     const result = recreateBlock(block);
@@ -161,7 +176,8 @@ describe("recreateBlock", () => {
 
   it("limits children to 100", () => {
     const children = Array.from({ length: 150 }, (_, i) => ({
-      type: "paragraph", paragraph: { rich_text: [{ type: "text", text: { content: `${i}` } }] },
+      type: "paragraph",
+      paragraph: { rich_text: [{ type: "text", text: { content: `${i}` } }] },
     }));
     const block = { type: "toggle", toggle: { rich_text: [] } };
     const result = recreateBlock(block, children);

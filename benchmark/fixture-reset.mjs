@@ -1,22 +1,20 @@
 #!/usr/bin/env node
-import { execSync } from "child_process";
-import { readFileSync } from "fs";
-import { resolve } from "path";
+import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 const ACTIONS = resolve(import.meta.dirname, "../scripts/actions.mjs");
 const CANONICAL_SECTION = resolve(import.meta.dirname, "fixtures/canonical-section.md");
 
 function run(action, ...args) {
-  const quoted = args.map(a => `'${a.replace(/'/g, "'\\''")}'`);
+  const quoted = args.map((a) => `'${a.replace(/'/g, "'\\''")}'`);
   return execSync(`node ${ACTIONS} ${action} ${quoted.join(" ")}`, {
-    encoding: "utf-8", timeout: 30000
+    encoding: "utf-8",
+    timeout: 30000,
   }).trim();
 }
 
-const {
-  BENCH_DB, BENCH_ENTRY, BENCH_ENTRIES,
-  BENCH_PAGE, BENCH_SECTION, BENCH_MERGE_SOURCES
-} = process.env;
+const { BENCH_DB, BENCH_ENTRY, BENCH_ENTRIES, BENCH_PAGE, BENCH_SECTION, BENCH_MERGE_SOURCES } = process.env;
 
 // 1. Clear Benchmark Marker on BENCH_ENTRY
 if (BENCH_ENTRY) {
@@ -30,7 +28,9 @@ if (BENCH_ENTRY) {
 
 // 2. Clear Benchmark Marker on all BENCH_ENTRIES (S7)
 if (BENCH_ENTRIES) {
-  const entries = BENCH_ENTRIES.split(",").map(s => s.trim()).filter(Boolean);
+  const entries = BENCH_ENTRIES.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   for (const entryId of entries) {
     try {
       run("setProperties", entryId, JSON.stringify({ "Benchmark Marker": "" }));
@@ -54,7 +54,9 @@ if (BENCH_PAGE && BENCH_SECTION) {
 
 // 4. Verify S6 merge sources exist and are not archived
 if (BENCH_MERGE_SOURCES) {
-  const sources = BENCH_MERGE_SOURCES.split(",").map(s => s.trim()).filter(Boolean);
+  const sources = BENCH_MERGE_SOURCES.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   for (const srcId of sources) {
     try {
       const page = run("getPage", srcId);

@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import { ACTIONS, toCamelCase } from "../../scripts/actions.mjs";
 
 describe("toCamelCase", () => {
@@ -18,18 +18,53 @@ describe("toCamelCase", () => {
 describe("ACTIONS registry", () => {
   it("has entries for all expected methods", () => {
     const expected = [
-      "search", "getPage", "getDatabase", "queryDatabase", "getTree",
-      "exportPage", "exportDatabase", "getComments", "getUsers",
-      "createPage", "updatePage", "appendBlocks", "insertBlocks",
-      "setProperties", "addComment", "lockPage", "unlockPage",
-      "createDatabase", "addDatabaseEntry",
-      "moveBlocks", "movePage", "reorderBlocks", "deepCopy",
-      "mergePages", "splitPage", "extractSection", "replaceSection",
-      "flattenPage", "nestUnderHeadings", "duplicateStructure", "applyTemplate",
-      "batchSetProperties", "batchArchive", "batchTag",
-      "snapshot", "restore", "backupPage", "backupDatabase", "transact",
-      "workspaceMap", "pageStats", "diffPages", "findDuplicates",
-      "findOrphans", "findEmpty", "findStale", "suggestReorganization",
+      "search",
+      "getPage",
+      "getDatabase",
+      "queryDatabase",
+      "getTree",
+      "exportPage",
+      "exportDatabase",
+      "getComments",
+      "getUsers",
+      "createPage",
+      "updatePage",
+      "appendBlocks",
+      "insertBlocks",
+      "setProperties",
+      "addComment",
+      "lockPage",
+      "unlockPage",
+      "createDatabase",
+      "addDatabaseEntry",
+      "moveBlocks",
+      "movePage",
+      "reorderBlocks",
+      "deepCopy",
+      "mergePages",
+      "splitPage",
+      "extractSection",
+      "replaceSection",
+      "flattenPage",
+      "nestUnderHeadings",
+      "duplicateStructure",
+      "applyTemplate",
+      "batchSetProperties",
+      "batchArchive",
+      "batchTag",
+      "snapshot",
+      "restore",
+      "backupPage",
+      "backupDatabase",
+      "transact",
+      "workspaceMap",
+      "pageStats",
+      "diffPages",
+      "findDuplicates",
+      "findOrphans",
+      "findEmpty",
+      "findStale",
+      "suggestReorganization",
     ];
     for (const name of expected) {
       assert.ok(ACTIONS[name], `Missing ACTIONS entry: ${name}`);
@@ -46,7 +81,7 @@ describe("ACTIONS registry", () => {
 });
 
 describe("SKILL.md cross-reference", async () => {
-  const { readFile } = await import("fs/promises");
+  const { readFile } = await import("node:fs/promises");
 
   it("every ACTIONS key appears in SKILL.md or action-reference.md", async () => {
     const skill = await readFile("skills/notion-agent-cli/SKILL.md", "utf-8");

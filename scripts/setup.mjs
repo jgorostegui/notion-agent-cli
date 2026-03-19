@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * Notion Agent CLI — Setup
  * Installs runtime deps if needed, validates token, writes plugin-root .env
@@ -9,18 +10,19 @@
  *   node scripts/setup.mjs --status
  */
 
-import { createInterface } from "readline";
-import { writeFile, mkdir, readFile, access, chmod } from "fs/promises";
-import { join, dirname, resolve } from "path";
-import { fileURLToPath } from "url";
-import { execFileSync, spawnSync } from "child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 
-const root = process.env.CLAUDE_PLUGIN_ROOT
-  || resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const root = process.env.CLAUDE_PLUGIN_ROOT || resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const envPath = join(root, ".env");
 
 function fileExists(path) {
-  return access(path).then(() => true).catch(() => false);
+  return access(path)
+    .then(() => true)
+    .catch(() => false);
 }
 
 async function hasRuntimeDeps() {
@@ -77,7 +79,7 @@ async function ask(question, { hidden = false } = {}) {
       echoDisabled = true;
     }
 
-    const answer = await new Promise(resolve => rl.question(question, resolve));
+    const answer = await new Promise((resolve) => rl.question(question, resolve));
     if (echoDisabled) process.stdout.write("\n");
     return answer;
   } finally {
@@ -187,9 +189,20 @@ async function setup(token) {
 const args = process.argv.slice(2);
 
 if (args.includes("--status")) {
-  status().catch(e => { console.error(e); process.exit(1); });
+  status().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
 } else if (args.includes("--with-token")) {
-  resolveTokenInput().then(token => setup(token)).catch(e => { console.error(e); process.exit(1); });
+  resolveTokenInput()
+    .then((token) => setup(token))
+    .catch((e) => {
+      console.error(e);
+      process.exit(1);
+    });
 } else {
-  setup().catch(e => { console.error(e); process.exit(1); });
+  setup().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
 }

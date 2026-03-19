@@ -1,20 +1,21 @@
 #!/usr/bin/env node
 // Validates that a benchmark session produced the expected Notion artifacts.
-import { execSync } from "child_process";
-import { resolve } from "path";
+import { execSync } from "node:child_process";
+import { resolve } from "node:path";
 
 const ACTIONS = resolve(import.meta.dirname, "../scripts/actions.mjs");
-const [marker, scenario] = [process.argv[2], parseInt(process.argv[3])];
+const [marker, scenario] = [process.argv[2], parseInt(process.argv[3], 10)];
 
-if (!marker || isNaN(scenario)) {
+if (!marker || Number.isNaN(scenario)) {
   console.error("Usage: node validate-session.mjs <marker> <scenario>");
   process.exit(1);
 }
 
 function run(action, ...args) {
-  const quoted = args.map(a => `'${a.replace(/'/g, "'\\''")}'`);
+  const quoted = args.map((a) => `'${a.replace(/'/g, "'\\''")}'`);
   return execSync(`node ${ACTIONS} ${action} ${quoted.join(" ")}`, {
-    encoding: "utf-8", timeout: 30000
+    encoding: "utf-8",
+    timeout: 30000,
   }).trim();
 }
 
@@ -45,7 +46,8 @@ function countHeadings(content) {
 
 function validate() {
   switch (scenario) {
-    case 1: { // Summary — page exists with >= 3 bullet points
+    case 1: {
+      // Summary — page exists with >= 3 bullet points
       const pageId = findPage(marker);
       if (!pageId) return { valid: false, reason: `Page "[${marker}]" not found` };
       const content = run("getPage", pageId);
@@ -55,7 +57,8 @@ function validate() {
       }
       return { valid: true };
     }
-    case 2: { // Report — page exists with entry-derived content
+    case 2: {
+      // Report — page exists with entry-derived content
       const pageId = findPage(marker);
       if (!pageId) return { valid: false, reason: `Report page not found` };
       const content = run("getPage", pageId);
@@ -65,7 +68,8 @@ function validate() {
       }
       return { valid: true };
     }
-    case 3: { // Copy — page exists with "Modifications" heading
+    case 3: {
+      // Copy — page exists with "Modifications" heading
       const pageId = findPage(marker);
       if (!pageId) return { valid: false, reason: `Page "[${marker}]" not found` };
       const content = run("getPage", pageId);
@@ -74,7 +78,8 @@ function validate() {
       }
       return { valid: true };
     }
-    case 4: { // setProperties — Benchmark Marker set on entry
+    case 4: {
+      // setProperties — Benchmark Marker set on entry
       const entryId = process.env.BENCH_ENTRY;
       if (!entryId) return { valid: false, reason: "BENCH_ENTRY not set" };
       const page = run("getPage", entryId);
@@ -83,7 +88,8 @@ function validate() {
       }
       return { valid: true };
     }
-    case 5: { // replaceSection — section updated, no duplicated items
+    case 5: {
+      // replaceSection — section updated, no duplicated items
       const pageId = process.env.BENCH_PAGE;
       const section = process.env.BENCH_SECTION;
       if (!pageId || !section) return { valid: false, reason: "Missing env" };
@@ -98,7 +104,8 @@ function validate() {
       }
       return { valid: true };
     }
-    case 6: { // Merge — page exists with >= 3 sections (one per source)
+    case 6: {
+      // Merge — page exists with >= 3 sections (one per source)
       const pageId = findPage(marker);
       if (!pageId) return { valid: false, reason: `Merged page "[${marker}]" not found` };
       const content = run("getPage", pageId);
@@ -108,8 +115,9 @@ function validate() {
       }
       return { valid: true };
     }
-    case 7: { // batchSetProperties — Benchmark Marker set on all entries
-      const entries = (process.env.BENCH_ENTRIES || '').split(',').filter(Boolean);
+    case 7: {
+      // batchSetProperties — Benchmark Marker set on all entries
+      const entries = (process.env.BENCH_ENTRIES || "").split(",").filter(Boolean);
       if (entries.length === 0) return { valid: false, reason: "BENCH_ENTRIES not set" };
       for (const entryId of entries) {
         const page = run("getPage", entryId.trim());
@@ -119,7 +127,8 @@ function validate() {
       }
       return { valid: true };
     }
-    case 8: { // Modified Copy — page exists with "Benchmark Notes" section
+    case 8: {
+      // Modified Copy — page exists with "Benchmark Notes" section
       const pageId = findPage(marker);
       if (!pageId) return { valid: false, reason: `Modified copy "[${marker}]" not found` };
       const content = run("getPage", pageId);

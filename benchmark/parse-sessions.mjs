@@ -43,9 +43,7 @@ function parseArgs(argv) {
   }
 
   if (sessions.length === 0) {
-    process.stderr.write(
-      "Usage: node benchmark/parse-sessions.mjs --label <name> <file.jsonl> ...\n"
-    );
+    process.stderr.write("Usage: node benchmark/parse-sessions.mjs --label <name> <file.jsonl> ...\n");
     process.exit(1);
   }
 
@@ -65,7 +63,10 @@ function parseArgs(argv) {
  */
 function parseSessionFile(filePath) {
   const content = readFileSync(filePath, "utf-8");
-  const lines = content.trim().split("\n").filter(l => l.trim());
+  const lines = content
+    .trim()
+    .split("\n")
+    .filter((l) => l.trim());
 
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
@@ -82,9 +83,7 @@ function parseSessionFile(filePath) {
     }
 
     // Look for usage data in various possible locations
-    const usage = entry?.message?.usage
-      || entry?.usage
-      || entry?.response?.usage;
+    const usage = entry?.message?.usage || entry?.usage || entry?.response?.usage;
 
     if (!usage) continue;
 
@@ -146,17 +145,14 @@ function fmt(n) {
 function printReport(sessions, results) {
   const colWidth = 22;
   const metricWidth = 34;
-  const labels = sessions.map(s => s.label);
+  const labels = sessions.map((s) => s.label);
 
   console.log(`\n${"═".repeat(metricWidth + labels.length * colWidth)}`);
   console.log("  View 2: Claude Code Session Token Analysis");
   console.log(`${"═".repeat(metricWidth + labels.length * colWidth)}`);
 
   // Header
-  console.log(
-    padRight("Metric", metricWidth) +
-    labels.map(l => padLeft(l, colWidth)).join("")
-  );
+  console.log(padRight("Metric", metricWidth) + labels.map((l) => padLeft(l, colWidth)).join(""));
   console.log("─".repeat(metricWidth + labels.length * colWidth));
 
   const metrics = [

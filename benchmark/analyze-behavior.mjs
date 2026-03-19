@@ -27,10 +27,24 @@ const INTENDED_WORKFLOWS = {
 
 // Actions that count as "useful" (actually doing work, not discovery)
 const USEFUL_ACTIONS = new Set([
-  "getPage", "createPage", "queryDatabase", "copyPageWith", "setProperties",
-  "replaceSection", "mergePages", "batchSetProperties", "deepCopy",
-  "appendBlocks", "updatePage", "extractSection", "search", "workspaceMap",
-  "getDatabase", "moveBlocks", "splitPage", "applyTemplate",
+  "getPage",
+  "createPage",
+  "queryDatabase",
+  "copyPageWith",
+  "setProperties",
+  "replaceSection",
+  "mergePages",
+  "batchSetProperties",
+  "deepCopy",
+  "appendBlocks",
+  "updatePage",
+  "extractSection",
+  "search",
+  "workspaceMap",
+  "getDatabase",
+  "moveBlocks",
+  "splitPage",
+  "applyTemplate",
 ]);
 
 // ── Arg parsing ─────────────────────────────────────────────────────────────
@@ -59,9 +73,7 @@ function parseArgs(argv) {
   }
 
   if (sessions.length === 0) {
-    process.stderr.write(
-      "Usage: node analyze-behavior.mjs --label <name> <file.jsonl> ...\n"
-    );
+    process.stderr.write("Usage: node analyze-behavior.mjs --label <name> <file.jsonl> ...\n");
     process.exit(1);
   }
 
@@ -72,7 +84,7 @@ function parseArgs(argv) {
 
 function extractScenario(label) {
   const m = label.match(/s(\d+)/);
-  return m ? parseInt(m[1]) : null;
+  return m ? parseInt(m[1], 10) : null;
 }
 
 function extractActionsFromBashCommand(cmd) {
@@ -83,7 +95,10 @@ function extractActionsFromBashCommand(cmd) {
 
 function analyzeSession(filePath, label) {
   const content = readFileSync(filePath, "utf-8");
-  const lines = content.trim().split("\n").filter(l => l.trim());
+  const lines = content
+    .trim()
+    .split("\n")
+    .filter((l) => l.trim());
 
   const scenario = extractScenario(label);
   let skillTriggered = false;
@@ -108,8 +123,7 @@ function analyzeSession(filePath, label) {
       const content = entry.message.content;
       if (Array.isArray(content)) {
         for (const block of content) {
-          if (block.type === "tool_use" && block.name === "Skill" &&
-              block.input?.skill === "notion-agent-cli") {
+          if (block.type === "tool_use" && block.name === "Skill" && block.input?.skill === "notion-agent-cli") {
             skillTriggered = true;
           }
 
@@ -123,13 +137,15 @@ function analyzeSession(filePath, label) {
             }
 
             // Check for source inspection
-            if (cmd.match(/cat\s+.*actions\.mjs/) ||
-                cmd.match(/head\s+.*actions\.mjs/) ||
-                cmd.match(/less\s+.*actions\.mjs/) ||
-                cmd.match(/wc\s+.*actions\.mjs/) ||
-                cmd.includes("which notion") ||
-                cmd.includes("type notion") ||
-                cmd.includes("file actions")) {
+            if (
+              cmd.match(/cat\s+.*actions\.mjs/) ||
+              cmd.match(/head\s+.*actions\.mjs/) ||
+              cmd.match(/less\s+.*actions\.mjs/) ||
+              cmd.match(/wc\s+.*actions\.mjs/) ||
+              cmd.includes("which notion") ||
+              cmd.includes("type notion") ||
+              cmd.includes("file actions")
+            ) {
               usedSourceInspection = true;
             }
 
@@ -157,7 +173,7 @@ function analyzeSession(filePath, label) {
           }
         }
         // Count assistant messages as turns
-        if (content.some(b => b.type === "tool_use" || b.type === "text")) {
+        if (content.some((b) => b.type === "tool_use" || b.type === "text")) {
           turnIndex++;
         }
       }
@@ -205,34 +221,26 @@ function analyzeSession(filePath, label) {
 // ── Aggregation ─────────────────────────────────────────────────────────────
 
 function computeAggregates(results) {
-  const nacResults = results.filter(
-    r => r.label.startsWith("nac-")
-  );
+  const nacResults = results.filter((r) => r.label.startsWith("nac-"));
   if (nacResults.length === 0) return null;
 
-  const triggered = nacResults.filter(r => r.skill_triggered).length;
+  const triggered = nacResults.filter((r) => r.skill_triggered).length;
   const triggerRate = triggered / nacResults.length;
 
   const usefulTurns = nacResults
-    .filter(r => r.first_useful_turn !== null)
-    .map(r => r.first_useful_turn)
+    .filter((r) => r.first_useful_turn !== null)
+    .map((r) => r.first_useful_turn)
     .sort((a, b) => a - b);
 
-  const median = usefulTurns.length > 0
-    ? usefulTurns[Math.floor(usefulTurns.length / 2)]
-    : null;
-  const p90 = usefulTurns.length > 0
-    ? usefulTurns[Math.floor(usefulTurns.length * 0.9)]
-    : null;
+  const median = usefulTurns.length > 0 ? usefulTurns[Math.floor(usefulTurns.length / 2)] : null;
+  const p90 = usefulTurns.length > 0 ? usefulTurns[Math.floor(usefulTurns.length * 0.9)] : null;
 
-  const workflowChecked = nacResults.filter(r => r.intended_workflow !== null);
-  const workflowMatch = workflowChecked.filter(r => r.intended_workflow_match).length;
-  const workflowAdherence = workflowChecked.length > 0
-    ? workflowMatch / workflowChecked.length
-    : null;
+  const workflowChecked = nacResults.filter((r) => r.intended_workflow !== null);
+  const workflowMatch = workflowChecked.filter((r) => r.intended_workflow_match).length;
+  const workflowAdherence = workflowChecked.length > 0 ? workflowMatch / workflowChecked.length : null;
 
-  const helpRate = nacResults.filter(r => r.used_help).length / nacResults.length;
-  const sourceRate = nacResults.filter(r => r.used_source_inspection).length / nacResults.length;
+  const helpRate = nacResults.filter((r) => r.used_help).length / nacResults.length;
+  const sourceRate = nacResults.filter((r) => r.used_source_inspection).length / nacResults.length;
 
   return {
     total_sessions: nacResults.length,
@@ -241,9 +249,7 @@ function computeAggregates(results) {
     not_triggered: nacResults.length - triggered,
     first_useful_turn_median: median,
     first_useful_turn_p90: p90,
-    workflow_adherence: workflowAdherence !== null
-      ? Math.round(workflowAdherence * 100) / 100
-      : null,
+    workflow_adherence: workflowAdherence !== null ? Math.round(workflowAdherence * 100) / 100 : null,
     workflow_matched: workflowMatch,
     workflow_checked: workflowChecked.length,
     help_rate: Math.round(helpRate * 100) / 100,
@@ -279,10 +285,16 @@ function main() {
 
   if (aggregates) {
     console.log("\n── Aggregates ──");
-    console.log(`  Trigger rate:           ${(aggregates.trigger_rate * 100).toFixed(0)}% (${aggregates.triggered}/${aggregates.total_sessions})`);
-    console.log(`  First useful turn:      median=${aggregates.first_useful_turn_median}, p90=${aggregates.first_useful_turn_p90}`);
+    console.log(
+      `  Trigger rate:           ${(aggregates.trigger_rate * 100).toFixed(0)}% (${aggregates.triggered}/${aggregates.total_sessions})`,
+    );
+    console.log(
+      `  First useful turn:      median=${aggregates.first_useful_turn_median}, p90=${aggregates.first_useful_turn_p90}`,
+    );
     if (aggregates.workflow_adherence !== null) {
-      console.log(`  Workflow adherence:     ${(aggregates.workflow_adherence * 100).toFixed(0)}% (${aggregates.workflow_matched}/${aggregates.workflow_checked})`);
+      console.log(
+        `  Workflow adherence:     ${(aggregates.workflow_adherence * 100).toFixed(0)}% (${aggregates.workflow_matched}/${aggregates.workflow_checked})`,
+      );
     }
     console.log(`  Help usage rate:        ${(aggregates.help_rate * 100).toFixed(0)}%`);
     console.log(`  Source inspection rate:  ${(aggregates.source_inspection_rate * 100).toFixed(0)}%`);
@@ -291,10 +303,10 @@ function main() {
   const output = { sessions: results, aggregates };
 
   if (outputFile) {
-    writeFileSync(outputFile, JSON.stringify(output, null, 2) + "\n");
+    writeFileSync(outputFile, `${JSON.stringify(output, null, 2)}\n`);
     console.log(`\nResults saved to ${outputFile}`);
   } else {
-    console.log("\n" + JSON.stringify(output, null, 2));
+    console.log(`\n${JSON.stringify(output, null, 2)}`);
   }
 }
 

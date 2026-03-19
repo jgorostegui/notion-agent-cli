@@ -1,9 +1,14 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import {
-  extractTitle, extractDbTitle, extractPropertyValue,
-  buildPropertyValue, normalizeId, safeName, csvEscape,
+  buildPropertyValue,
+  csvEscape,
+  extractDbTitle,
+  extractPropertyValue,
+  extractTitle,
   NotionActions,
+  normalizeId,
+  safeName,
 } from "../../scripts/actions.mjs";
 
 describe("extractTitle", () => {
@@ -39,7 +44,10 @@ describe("extractPropertyValue", () => {
     assert.equal(extractPropertyValue({ type: "email", email: "a@b.c" }), "a@b.c");
     assert.equal(extractPropertyValue({ type: "status", status: { name: "Done" } }), "Done");
     assert.equal(extractPropertyValue({ type: "date", date: { start: "2024-01-01" } }), "2024-01-01");
-    assert.equal(extractPropertyValue({ type: "created_time", created_time: "2024-01-01T00:00:00Z" }), "2024-01-01T00:00:00Z");
+    assert.equal(
+      extractPropertyValue({ type: "created_time", created_time: "2024-01-01T00:00:00Z" }),
+      "2024-01-01T00:00:00Z",
+    );
   });
 
   it("returns empty string for null/undefined", () => {
@@ -79,8 +87,7 @@ describe("buildPropertyValue", () => {
 
 describe("normalizeId", () => {
   it("converts 32-char hex to hyphenated UUID", () => {
-    assert.equal(normalizeId("123456781234123412341234567890ab"),
-      "12345678-1234-1234-1234-1234567890ab");
+    assert.equal(normalizeId("123456781234123412341234567890ab"), "12345678-1234-1234-1234-1234567890ab");
   });
 
   it("leaves already-hyphenated UUID unchanged", () => {
@@ -146,14 +153,12 @@ describe("csvEscape", () => {
 describe("batchSetProperties error reporting", () => {
   it("returns errors array with failed IDs", async () => {
     const actions = new NotionActions("ntn_test_token");
-    let callCount = 0;
+    let _callCount = 0;
     actions.setProperties = async (id) => {
-      callCount++;
+      _callCount++;
       if (id === "bad-id") throw new Error("Not found");
     };
-    const result = await actions.batchSetProperties(
-      ["good-id", "bad-id", "good-id2"], {}
-    );
+    const result = await actions.batchSetProperties(["good-id", "bad-id", "good-id2"], {});
     assert.equal(result.updated, 2);
     assert.equal(result.total, 3);
     assert.equal(result.errors.length, 1);

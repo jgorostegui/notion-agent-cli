@@ -4,9 +4,9 @@
  * API version 2025-09-03 · @notionhq/client ^5.9.0
  */
 
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { Client } from "@notionhq/client";
-import { writeFile, readFile, mkdir } from "fs/promises";
-import { join, dirname } from "path";
 
 // Load .env from plugin root (replaces dotenv dependency)
 try {
@@ -34,14 +34,13 @@ class RateLimiter {
     this._queue = this._queue.then(async () => {
       const elapsed = Date.now() - this.lastRequest;
       if (elapsed < this.minInterval) {
-        await new Promise(r => setTimeout(r, this.minInterval - elapsed));
+        await new Promise((r) => setTimeout(r, this.minInterval - elapsed));
       }
       this.lastRequest = Date.now();
     });
     return this._queue;
   }
 }
-
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Converter Functions — Markdown ↔ Blocks
@@ -50,18 +49,20 @@ class RateLimiter {
 /** Convert Notion rich_text array to markdown. Annotation order: code→bold→italic→strike→underline→link */
 function richTextToMd(richText) {
   if (!richText?.length) return "";
-  return richText.map(rt => {
-    let text = rt.plain_text || "";
-    const ann = rt.annotations || {};
-    if (ann.code) text = `\`${text}\``;
-    if (ann.bold) text = `**${text}**`;
-    if (ann.italic) text = `*${text}*`;
-    if (ann.strikethrough) text = `~~${text}~~`;
-    if (ann.underline) text = `<u>${text}</u>`;
-    const link = rt.href || rt.text?.link?.url;
-    if (link) text = `[${text}](${link})`;
-    return text;
-  }).join("");
+  return richText
+    .map((rt) => {
+      let text = rt.plain_text || "";
+      const ann = rt.annotations || {};
+      if (ann.code) text = `\`${text}\``;
+      if (ann.bold) text = `**${text}**`;
+      if (ann.italic) text = `*${text}*`;
+      if (ann.strikethrough) text = `~~${text}~~`;
+      if (ann.underline) text = `<u>${text}</u>`;
+      const link = rt.href || rt.text?.link?.url;
+      if (link) text = `[${text}](${link})`;
+      return text;
+    })
+    .join("");
 }
 
 /** Convert block tree to markdown string */
@@ -133,7 +134,7 @@ function blocksToMarkdown(blocks, indent = 0) {
         lines.push(`${prefix}[Table — ${content.table_width || "?"} columns]`);
         break;
       case "table_row": {
-        const cells = (content.cells || []).map(cell => richTextToMd(cell));
+        const cells = (content.cells || []).map((cell) => richTextToMd(cell));
         lines.push(`${prefix}| ${cells.join(" | ")} |`);
         break;
       }
@@ -187,7 +188,10 @@ function markdownToBlocks(md) {
     const line = lines[i];
     const trimmed = line.trimEnd();
 
-    if (!trimmed) { i++; continue; }
+    if (!trimmed) {
+      i++;
+      continue;
+    }
 
     // Code block
     if (trimmed.startsWith("```")) {
@@ -207,52 +211,61 @@ function markdownToBlocks(md) {
     const todoMatch = trimmed.match(/^-\s+\[([ x])\]\s+(.*)/);
     if (todoMatch) {
       blocks.push({
-        object: "block", type: "to_do",
+        object: "block",
+        type: "to_do",
         to_do: { rich_text: textToRichText(todoMatch[2]), checked: todoMatch[1] === "x" },
       });
-      i++; continue;
+      i++;
+      continue;
     }
 
     // Headings
     const headingMatch = trimmed.match(/^(#{1,3})\s+(.*)/);
     if (headingMatch) {
       blocks.push(makeHeadingBlock(headingMatch[1].length, headingMatch[2]));
-      i++; continue;
+      i++;
+      continue;
     }
 
     // Bullet list
     const bulletMatch = trimmed.match(/^[-*]\s+(.*)/);
     if (bulletMatch) {
       blocks.push(makeTextBlock("bulleted_list_item", bulletMatch[1]));
-      i++; continue;
+      i++;
+      continue;
     }
 
     // Numbered list
     const numMatch = trimmed.match(/^\d+\.\s+(.*)/);
     if (numMatch) {
       blocks.push(makeTextBlock("numbered_list_item", numMatch[1]));
-      i++; continue;
+      i++;
+      continue;
     }
 
     // Quote
     if (trimmed.startsWith("> ")) {
       blocks.push(makeTextBlock("quote", trimmed.slice(2)));
-      i++; continue;
+      i++;
+      continue;
     }
 
     // Divider
     if (/^(---|___|\*\*\*)$/.test(trimmed.trim())) {
       blocks.push({ object: "block", type: "divider", divider: {} });
-      i++; continue;
+      i++;
+      continue;
     }
 
     // Equation
     if (trimmed.startsWith("$") && trimmed.endsWith("$") && trimmed.length > 2) {
       blocks.push({
-        object: "block", type: "equation",
+        object: "block",
+        type: "equation",
         equation: { expression: trimmed.slice(1, -1) },
       });
-      i++; continue;
+      i++;
+      continue;
     }
 
     // Default: paragraph
@@ -285,23 +298,31 @@ function recreateBlock(block, children = []) {
   const newBlock = { object: "block", type };
   if (block[type]) {
     const content = { ...block[type] };
-    for (const key of ["id", "created_time", "last_edited_time", "created_by",
-                        "last_edited_by", "archived", "in_trash", "parent"]) {
+    for (const key of [
+      "id",
+      "created_time",
+      "last_edited_time",
+      "created_by",
+      "last_edited_by",
+      "archived",
+      "in_trash",
+      "parent",
+    ]) {
       delete content[key];
     }
     newBlock[type] = content;
   }
 
   if (children.length > 0 && newBlock[type]) {
-    const childBlocks = children.slice(0, 100)
-      .map(c => recreateBlock(c, c.children || []))
+    const childBlocks = children
+      .slice(0, 100)
+      .map((c) => recreateBlock(c, c.children || []))
       .filter(Boolean);
     if (childBlocks.length > 0) newBlock[type].children = childBlocks;
   }
 
   return newBlock;
 }
-
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Pure Helper Functions
@@ -312,7 +333,7 @@ function extractTitle(page) {
   const props = page.properties || {};
   for (const prop of Object.values(props)) {
     if (prop.type === "title") {
-      return (prop.title || []).map(t => t.plain_text || "").join("") || "Untitled";
+      return (prop.title || []).map((t) => t.plain_text || "").join("") || "Untitled";
     }
   }
   return "Untitled";
@@ -320,7 +341,7 @@ function extractTitle(page) {
 
 /** Extract readable title from a Notion database object */
 function extractDbTitle(db) {
-  return (db.title || []).map(t => t.plain_text || "").join("") || "Untitled";
+  return (db.title || []).map((t) => t.plain_text || "").join("") || "Untitled";
 }
 
 /** Convert any Notion property type to human-readable string (20 types) */
@@ -328,44 +349,78 @@ function extractPropertyValue(prop) {
   const t = prop?.type;
   if (!t) return "";
   switch (t) {
-    case "title": return (prop.title || []).map(r => r.plain_text).join("");
-    case "rich_text": return (prop.rich_text || []).map(r => r.plain_text).join("");
-    case "number": return prop.number != null ? String(prop.number) : "";
-    case "select": return prop.select?.name ?? "";
-    case "multi_select": return (prop.multi_select || []).map(s => s.name).join(", ");
-    case "date": return prop.date?.start ?? "";
-    case "checkbox": return String(prop.checkbox);
-    case "url": return prop.url ?? "";
-    case "email": return prop.email ?? "";
-    case "phone_number": return prop.phone_number ?? "";
-    case "status": return prop.status?.name ?? "";
-    case "relation": return (prop.relation || []).map(r => r.id.replace(/-/g, "").slice(-4)).join(", ");
-    case "formula": return prop.formula?.[prop.formula?.type] != null ? String(prop.formula[prop.formula.type]) : "";
-    case "rollup": { const s = JSON.stringify(prop.rollup); return s.length > 80 ? s.slice(0, 79) + "…" : s; }
-    case "people": return (prop.people || []).map(p => p.name || p.id).join(", ");
-    case "created_time": return prop.created_time ?? "";
-    case "last_edited_time": return prop.last_edited_time ?? "";
-    case "created_by": return prop.created_by?.name ?? "";
-    case "last_edited_by": return prop.last_edited_by?.name ?? "";
-    default: return JSON.stringify(prop[t] ?? "");
+    case "title":
+      return (prop.title || []).map((r) => r.plain_text).join("");
+    case "rich_text":
+      return (prop.rich_text || []).map((r) => r.plain_text).join("");
+    case "number":
+      return prop.number != null ? String(prop.number) : "";
+    case "select":
+      return prop.select?.name ?? "";
+    case "multi_select":
+      return (prop.multi_select || []).map((s) => s.name).join(", ");
+    case "date":
+      return prop.date?.start ?? "";
+    case "checkbox":
+      return String(prop.checkbox);
+    case "url":
+      return prop.url ?? "";
+    case "email":
+      return prop.email ?? "";
+    case "phone_number":
+      return prop.phone_number ?? "";
+    case "status":
+      return prop.status?.name ?? "";
+    case "relation":
+      return (prop.relation || []).map((r) => r.id.replace(/-/g, "").slice(-4)).join(", ");
+    case "formula":
+      return prop.formula?.[prop.formula?.type] != null ? String(prop.formula[prop.formula.type]) : "";
+    case "rollup": {
+      const s = JSON.stringify(prop.rollup);
+      return s.length > 80 ? `${s.slice(0, 79)}…` : s;
+    }
+    case "people":
+      return (prop.people || []).map((p) => p.name || p.id).join(", ");
+    case "created_time":
+      return prop.created_time ?? "";
+    case "last_edited_time":
+      return prop.last_edited_time ?? "";
+    case "created_by":
+      return prop.created_by?.name ?? "";
+    case "last_edited_by":
+      return prop.last_edited_by?.name ?? "";
+    default:
+      return JSON.stringify(prop[t] ?? "");
   }
 }
 
 /** Build typed Notion property objects from simple values (11 types) */
 function buildPropertyValue(type, value) {
   switch (type) {
-    case "title": return { title: [{ text: { content: String(value) } }] };
-    case "rich_text": return { rich_text: [{ text: { content: String(value) } }] };
-    case "number": return { number: Number(value) };
-    case "select": return { select: { name: String(value) } };
-    case "multi_select": return { multi_select: (Array.isArray(value) ? value : [value]).map(v => ({ name: String(v) })) };
-    case "checkbox": return { checkbox: Boolean(value) };
-    case "url": return { url: String(value) };
-    case "email": return { email: String(value) };
-    case "date": return { date: { start: String(value) } };
-    case "status": return { status: { name: String(value) } };
-    case "relation": return { relation: (Array.isArray(value) ? value : [value]).map(v => ({ id: String(v) })) };
-    default: return {};
+    case "title":
+      return { title: [{ text: { content: String(value) } }] };
+    case "rich_text":
+      return { rich_text: [{ text: { content: String(value) } }] };
+    case "number":
+      return { number: Number(value) };
+    case "select":
+      return { select: { name: String(value) } };
+    case "multi_select":
+      return { multi_select: (Array.isArray(value) ? value : [value]).map((v) => ({ name: String(v) })) };
+    case "checkbox":
+      return { checkbox: Boolean(value) };
+    case "url":
+      return { url: String(value) };
+    case "email":
+      return { email: String(value) };
+    case "date":
+      return { date: { start: String(value) } };
+    case "status":
+      return { status: { name: String(value) } };
+    case "relation":
+      return { relation: (Array.isArray(value) ? value : [value]).map((v) => ({ id: String(v) })) };
+    default:
+      return {};
   }
 }
 
@@ -379,7 +434,11 @@ function normalizeId(id) {
 
 /** Sanitize filename: max 50 chars, alphanumeric/spaces/hyphens only */
 function safeName(str) {
-  return str.replace(/[^\w\s-]/g, "").trim().slice(0, 50).trim();
+  return str
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .slice(0, 50)
+    .trim();
 }
 
 /** Escape a value for CSV: quote, double-escape inner quotes, replace newlines */
@@ -387,7 +446,6 @@ function csvEscape(value) {
   const str = String(value ?? "");
   return `"${str.replace(/"/g, '""').replace(/[\r\n]+/g, " ")}"`;
 }
-
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // NotionActions Class
@@ -424,7 +482,7 @@ export class NotionActions {
     let cursor;
     do {
       const resp = await this._call(() =>
-        this.client.blocks.children.list({ block_id: normalizeId(blockId), page_size: 100, start_cursor: cursor })
+        this.client.blocks.children.list({ block_id: normalizeId(blockId), page_size: 100, start_cursor: cursor }),
       );
       results.push(...resp.results);
       cursor = resp.has_more ? resp.next_cursor : undefined;
@@ -471,7 +529,10 @@ export class NotionActions {
       const resp = await this._call(() => this.client.dataSources.query(params));
       results.push(...resp.results);
       cursor = resp.has_more ? resp.next_cursor : undefined;
-      if (limit && results.length >= limit) { results.length = limit; break; }
+      if (limit && results.length >= limit) {
+        results.length = limit;
+        break;
+      }
     } while (cursor);
     return results;
   }
@@ -495,9 +556,9 @@ export class NotionActions {
       const chunk = blocks.slice(i, i + 100);
       try {
         const resp = await this._call(() =>
-          this.client.blocks.children.append({ block_id: nid, children: chunk, position: pos })
+          this.client.blocks.children.append({ block_id: nid, children: chunk, position: pos }),
         );
-        const ids = resp.results.map(r => r.id);
+        const ids = resp.results.map((r) => r.id);
         createdIds.push(...ids);
         // Chain: next chunk goes after the last created block
         if (ids.length > 0) {
@@ -508,9 +569,9 @@ export class NotionActions {
         if (pos.type === "after_block") {
           pos = { type: "end" };
           const resp = await this._call(() =>
-            this.client.blocks.children.append({ block_id: nid, children: chunk, position: pos })
+            this.client.blocks.children.append({ block_id: nid, children: chunk, position: pos }),
           );
-          const ids = resp.results.map(r => r.id);
+          const ids = resp.results.map((r) => r.id);
           createdIds.push(...ids);
           if (ids.length > 0) {
             pos = { type: "after_block", after_block: { id: ids[ids.length - 1] } };
@@ -522,7 +583,6 @@ export class NotionActions {
     }
     return createdIds;
   }
-
 
   // ── READ Actions ────────────────────────────────────────────────────────
 
@@ -537,10 +597,13 @@ export class NotionActions {
       results.push(...resp.results);
       cursor = resp.has_more ? resp.next_cursor : undefined;
     } while (cursor);
-    return results.map(r => ({
-      id: r.id, type: r.object,
+    return results.map((r) => ({
+      id: r.id,
+      type: r.object,
       title: r.object === "page" ? extractTitle(r) : extractDbTitle(r),
-      url: r.url, lastEdited: r.last_edited_time, parent: r.parent,
+      url: r.url,
+      lastEdited: r.last_edited_time,
+      parent: r.parent,
     }));
   }
 
@@ -581,7 +644,12 @@ export class NotionActions {
       if (block.type === "child_page") {
         tree.children.push(await this.getTree(block.id, { depth, _current: _current + 1 }));
       } else if (block.type === "child_database") {
-        tree.children.push({ id: block.id, title: block.child_database?.title || "Untitled", type: "database", children: [] });
+        tree.children.push({
+          id: block.id,
+          title: block.child_database?.title || "Untitled",
+          type: "database",
+          children: [],
+        });
       }
     }
     return tree;
@@ -602,7 +670,7 @@ export class NotionActions {
 
     if (format === "json") {
       const filePath = join(path, "entries.json");
-      const rows = data.entries.map(entry => {
+      const rows = data.entries.map((entry) => {
         const row = { _id: entry.id };
         for (const [name, prop] of Object.entries(entry.properties || {})) row[name] = extractPropertyValue(prop);
         return row;
@@ -613,17 +681,14 @@ export class NotionActions {
 
     // CSV
     const filePath = join(path, "entries.csv");
-    const rows = data.entries.map(entry => {
+    const rows = data.entries.map((entry) => {
       const row = {};
       for (const [name, prop] of Object.entries(entry.properties || {})) row[name] = extractPropertyValue(prop);
       return row;
     });
     if (rows.length > 0) {
       const headers = Object.keys(rows[0]);
-      const csvLines = [
-        headers.join(","),
-        ...rows.map(row => headers.map(h => csvEscape(row[h])).join(",")),
-      ];
+      const csvLines = [headers.join(","), ...rows.map((row) => headers.map((h) => csvEscape(row[h])).join(","))];
       await writeFile(filePath, csvLines.join("\n"), "utf-8");
     } else {
       await writeFile(filePath, "", "utf-8");
@@ -637,7 +702,9 @@ export class NotionActions {
     const results = [];
     let cursor;
     do {
-      const resp = await this._call(() => this.client.comments.list({ block_id: nid, page_size: 100, start_cursor: cursor }));
+      const resp = await this._call(() =>
+        this.client.comments.list({ block_id: nid, page_size: 100, start_cursor: cursor }),
+      );
       results.push(...resp.results);
       cursor = resp.has_more ? resp.next_cursor : undefined;
     } while (cursor);
@@ -655,7 +722,6 @@ export class NotionActions {
     } while (cursor);
     return results;
   }
-
 
   // ── WRITE Actions ───────────────────────────────────────────────────────
 
@@ -675,11 +741,13 @@ export class NotionActions {
         parent = { page_id: nid };
       }
 
-      const page = await this._call(() => this.client.pages.create({
-        parent,
-        properties: { title: [{ text: { content: title || "" } }] },
-        children: firstBatch,
-      }));
+      const page = await this._call(() =>
+        this.client.pages.create({
+          parent,
+          properties: { title: [{ text: { content: title || "" } }] },
+          children: firstBatch,
+        }),
+      );
 
       if (remaining.length > 0) await this._appendInBatches(page.id, remaining);
       return { success: true, pageId: page.id, url: page.url };
@@ -765,7 +833,7 @@ export class NotionActions {
       const parentType = page.parent?.type;
       let properties = props;
       if (parentType === "database_id" || parentType === "data_source_id") {
-        const dsId = page.parent.data_source_id || await this._resolveDataSourceId(page.parent.database_id);
+        const dsId = page.parent.data_source_id || (await this._resolveDataSourceId(page.parent.database_id));
         const ds = await this._call(() => this.client.dataSources.retrieve({ data_source_id: dsId }));
         properties = {};
         for (const [name, value] of Object.entries(props)) {
@@ -789,10 +857,12 @@ export class NotionActions {
   async addComment(pageId, text) {
     try {
       const nid = normalizeId(pageId);
-      await this._call(() => this.client.comments.create({
-        parent: { page_id: nid },
-        rich_text: textToRichText(text),
-      }));
+      await this._call(() =>
+        this.client.comments.create({
+          parent: { page_id: nid },
+          rich_text: textToRichText(text),
+        }),
+      );
       return { success: true };
     } catch (e) {
       return { success: false, error: String(e) };
@@ -825,11 +895,13 @@ export class NotionActions {
   async createDatabase(parentId, title, schema) {
     try {
       const nid = normalizeId(parentId);
-      const db = await this._call(() => this.client.databases.create({
-        parent: { page_id: nid },
-        title: [{ text: { content: title || "" } }],
-        initial_data_source: { properties: schema },
-      }));
+      const db = await this._call(() =>
+        this.client.databases.create({
+          parent: { page_id: nid },
+          title: [{ text: { content: title || "" } }],
+          initial_data_source: { properties: schema },
+        }),
+      );
       return { success: true, databaseId: db.id, url: db.url };
     } catch (e) {
       return { success: false, error: String(e) };
@@ -848,16 +920,17 @@ export class NotionActions {
         if (!propSchema) continue;
         properties[name] = buildPropertyValue(propSchema.type, value);
       }
-      const page = await this._call(() => this.client.pages.create({
-        parent: { data_source_id: dsId },
-        properties,
-      }));
+      const page = await this._call(() =>
+        this.client.pages.create({
+          parent: { data_source_id: dsId },
+          properties,
+        }),
+      );
       return { success: true, pageId: page.id, url: page.url };
     } catch (e) {
       return { success: false, error: String(e) };
     }
   }
-
 
   // ── STRUCTURAL Actions ──────────────────────────────────────────────────
 
@@ -877,7 +950,7 @@ export class NotionActions {
         const newBlock = recreateBlock(block, children);
         if (!newBlock) continue;
         const resp = await this._call(() =>
-          this.client.blocks.children.append({ block_id: tgtId, children: [newBlock], position: pos })
+          this.client.blocks.children.append({ block_id: tgtId, children: [newBlock], position: pos }),
         );
         const newId = resp.results?.[0]?.id;
         if (newId) {
@@ -894,7 +967,7 @@ export class NotionActions {
   }
 
   /** Move page to new parent via deep copy + archive (API parent is read-only) */
-  async movePage(pageId, newParentId, { parentType = "page" } = {}) {
+  async movePage(pageId, newParentId, { parentType: _parentType = "page" } = {}) {
     const nid = normalizeId(pageId);
     try {
       await this.snapshot(nid);
@@ -921,9 +994,14 @@ export class NotionActions {
       const used = new Set();
       for (const id of newOrder) {
         const noid = normalizeId(id);
-        if (blockMap.has(noid)) { ordered.push(blockMap.get(noid)); used.add(noid); }
+        if (blockMap.has(noid)) {
+          ordered.push(blockMap.get(noid));
+          used.add(noid);
+        }
       }
-      for (const b of blocks) { if (!used.has(b.id)) ordered.push(b); }
+      for (const b of blocks) {
+        if (!used.has(b.id)) ordered.push(b);
+      }
 
       // Delete all existing blocks
       const shallow = await this._fetchBlocksShallow(nid);
@@ -933,7 +1011,7 @@ export class NotionActions {
       }
 
       // Recreate in order
-      const recreated = ordered.map(b => recreateBlock(b, b.children || [])).filter(Boolean);
+      const recreated = ordered.map((b) => recreateBlock(b, b.children || [])).filter(Boolean);
       await this._appendInBatches(nid, recreated);
       return { success: true, reordered: newOrder.length };
     } catch (e) {
@@ -974,8 +1052,8 @@ export class NotionActions {
       const firstNewlines = md.indexOf("\n\n");
       let contentMd = firstNewlines >= 0 ? md.slice(firstNewlines + 2) : md;
 
-      if (prependMd) contentMd = prependMd + "\n\n" + contentMd;
-      if (appendMd) contentMd = contentMd + "\n\n" + appendMd;
+      if (prependMd) contentMd = `${prependMd}\n\n${contentMd}`;
+      if (appendMd) contentMd = `${contentMd}\n\n${appendMd}`;
 
       const finalTitle = replaceTitle || title;
       const result = await this.createPage(tgtId, finalTitle, contentMd);
@@ -993,7 +1071,7 @@ export class NotionActions {
       let merged = 0;
       for (const srcId of sourcePageIds) {
         const md = await this.getPage(normalizeId(srcId));
-        const sectionMd = md.startsWith("# ") ? "##" + md.slice(1) : md;
+        const sectionMd = md.startsWith("# ") ? `##${md.slice(1)}` : md;
         await this.appendBlocks(tgtId, sectionMd);
         merged++;
         if (archiveSources) {
@@ -1012,9 +1090,9 @@ export class NotionActions {
     try {
       const md = await this.getPage(nid);
       const page = await this._call(() => this.client.pages.retrieve({ page_id: nid }));
-      const parentId = createUnderSamePage ? nid : (page.parent?.page_id || nid);
+      const parentId = createUnderSamePage ? nid : page.parent?.page_id || nid;
 
-      const headingPrefix = "#".repeat(headingLevel) + " ";
+      const headingPrefix = `${"#".repeat(headingLevel)} `;
       const regex = new RegExp(`\n(?=${headingPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`);
       const sections = md.split(regex);
 
@@ -1046,7 +1124,7 @@ export class NotionActions {
       for (const block of blocks) {
         const type = block.type;
         if (type?.startsWith("heading_")) {
-          const level = parseInt(type.split("_")[1]);
+          const level = parseInt(type.split("_")[1], 10);
           const text = richTextToMd(block[type]?.rich_text);
           if (!capturing && text.toLowerCase().includes(headingText.toLowerCase())) {
             capturing = true;
@@ -1066,7 +1144,7 @@ export class NotionActions {
       }
 
       if (!sectionBlocks.length) return { success: false, error: `Section "${headingText}" not found` };
-      return { success: true, markdown: blocksToMarkdown(sectionBlocks), blockIds: sectionBlocks.map(b => b.id) };
+      return { success: true, markdown: blocksToMarkdown(sectionBlocks), blockIds: sectionBlocks.map((b) => b.id) };
     } catch (e) {
       return { success: false, error: String(e) };
     }
@@ -1086,7 +1164,7 @@ export class NotionActions {
       for (const block of blocks) {
         const type = block.type;
         if (type?.startsWith("heading_")) {
-          const level = parseInt(type.split("_")[1]);
+          const level = parseInt(type.split("_")[1], 10);
           const text = richTextToMd(block[type]?.rich_text);
           if (!pastHeading && text.toLowerCase().includes(headingText.toLowerCase())) {
             headingBlockId = block.id;
@@ -1200,7 +1278,6 @@ export class NotionActions {
     }
   }
 
-
   // ── BATCH Actions ───────────────────────────────────────────────────────
 
   /** Set properties on multiple pages, continuing on individual failures */
@@ -1307,7 +1384,7 @@ export class NotionActions {
       const schemaPath = join(dirPath, "schema.json");
       await writeFile(schemaPath, JSON.stringify(data.schema, null, 2), "utf-8");
 
-      const rows = data.entries.map(entry => {
+      const rows = data.entries.map((entry) => {
         const row = { _id: entry.id };
         for (const [name, prop] of Object.entries(entry.properties || {})) row[name] = extractPropertyValue(prop);
         return row;
@@ -1319,10 +1396,7 @@ export class NotionActions {
       const csvPath = join(dirPath, "entries.csv");
       if (rows.length > 0) {
         const headers = Object.keys(rows[0]);
-        const csvLines = [
-          headers.join(","),
-          ...rows.map(row => headers.map(h => csvEscape(row[h])).join(",")),
-        ];
+        const csvLines = [headers.join(","), ...rows.map((row) => headers.map((h) => csvEscape(row[h])).join(","))];
         await writeFile(csvPath, csvLines.join("\n"), "utf-8");
       } else {
         await writeFile(csvPath, "", "utf-8");
@@ -1365,7 +1439,6 @@ export class NotionActions {
     }
   }
 
-
   // ── ANALYSIS Actions ────────────────────────────────────────────────────
 
   /** Map entire workspace: all pages and databases */
@@ -1383,26 +1456,27 @@ export class NotionActions {
     const md = blocksToMarkdown(blocks);
     const { count, maxDepth } = this._countBlocks(blocks);
     return {
-      pageId: nid, title: extractTitle(page), blockCount: count, maxDepth,
+      pageId: nid,
+      title: extractTitle(page),
+      blockCount: count,
+      maxDepth,
       wordCount: md.split(/\s+/).filter(Boolean).length,
-      lastEdited: page.last_edited_time, created: page.created_time,
+      lastEdited: page.last_edited_time,
+      created: page.created_time,
     };
   }
 
   /** Line-level diff between two pages */
   async diffPages(pageId1, pageId2) {
-    const [md1, md2] = await Promise.all([
-      this.getPage(normalizeId(pageId1)),
-      this.getPage(normalizeId(pageId2)),
-    ]);
-    const lines1 = md1.split("\n").filter(l => l.trim());
-    const lines2 = md2.split("\n").filter(l => l.trim());
+    const [md1, md2] = await Promise.all([this.getPage(normalizeId(pageId1)), this.getPage(normalizeId(pageId2))]);
+    const lines1 = md1.split("\n").filter((l) => l.trim());
+    const lines2 = md2.split("\n").filter((l) => l.trim());
     const set1 = new Set(lines1);
     const set2 = new Set(lines2);
-    const common = lines1.filter(l => set2.has(l));
+    const common = lines1.filter((l) => set2.has(l));
     return {
-      onlyInFirst: lines1.filter(l => !set2.has(l)),
-      onlyInSecond: lines2.filter(l => !set1.has(l)),
+      onlyInFirst: lines1.filter((l) => !set2.has(l)),
+      onlyInSecond: lines2.filter((l) => !set1.has(l)),
       common,
       stats: { page1Lines: lines1.length, page2Lines: lines2.length, commonLines: common.length },
     };
@@ -1425,7 +1499,7 @@ export class NotionActions {
   /** Find pages at workspace root (parent.type === "workspace") */
   async findOrphans() {
     const { pages } = await this.workspaceMap();
-    return pages.filter(p => p.parent?.type === "workspace");
+    return pages.filter((p) => p.parent?.type === "workspace");
   }
 
   /** Find pages with zero content blocks (max 100 checked) */
@@ -1436,7 +1510,9 @@ export class NotionActions {
       try {
         const blocks = await this._fetchBlocksShallow(p.id);
         if (blocks.length === 0) empty.push(p);
-      } catch { /* skip inaccessible */ }
+      } catch {
+        /* skip inaccessible */
+      }
     }
     return empty;
   }
@@ -1445,7 +1521,7 @@ export class NotionActions {
   async findStale(days = 30) {
     const { pages } = await this.workspaceMap();
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-    return pages.filter(p => p.lastEdited && p.lastEdited < cutoff);
+    return pages.filter((p) => p.lastEdited && p.lastEdited < cutoff);
   }
 
   /** Analyze page tree and suggest reorganization */
@@ -1456,19 +1532,31 @@ export class NotionActions {
     const suggestions = [];
 
     const checkDepth = (node, depth = 0) => {
-      if (depth > 3) suggestions.push({ type: "too_deep", message: `"${node.title}" is nested ${depth} levels deep`, pageId: node.id });
+      if (depth > 3)
+        suggestions.push({
+          type: "too_deep",
+          message: `"${node.title}" is nested ${depth} levels deep`,
+          pageId: node.id,
+        });
       for (const child of node.children || []) checkDepth(child, depth + 1);
     };
     checkDepth(tree);
 
     const checkWidth = (node) => {
-      if ((node.children?.length || 0) > 10) suggestions.push({ type: "too_wide", message: `"${node.title}" has ${node.children.length} children`, pageId: node.id });
+      if ((node.children?.length || 0) > 10)
+        suggestions.push({
+          type: "too_wide",
+          message: `"${node.title}" has ${node.children.length} children`,
+          pageId: node.id,
+        });
       for (const child of node.children || []) checkWidth(child);
     };
     checkWidth(tree);
 
-    if (stats.wordCount > 3000) suggestions.push({ type: "too_long", message: `Page has ${stats.wordCount} words`, pageId: nid });
-    if (stats.blockCount > 200) suggestions.push({ type: "many_blocks", message: `Page has ${stats.blockCount} blocks`, pageId: nid });
+    if (stats.wordCount > 3000)
+      suggestions.push({ type: "too_long", message: `Page has ${stats.wordCount} words`, pageId: nid });
+    if (stats.blockCount > 200)
+      suggestions.push({ type: "many_blocks", message: `Page has ${stats.blockCount} blocks`, pageId: nid });
 
     return { tree, stats, suggestions, suggestionCount: suggestions.length };
   }
@@ -1489,7 +1577,6 @@ export class NotionActions {
   }
 }
 
-
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // CLI Dispatcher
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1497,58 +1584,61 @@ export class NotionActions {
 /** Explicit action registry — no signature introspection */
 const ACTIONS = {
   // READ
-  search:            { args: ["query"], options: ["type"] },
-  getPage:           { args: ["pageId"], options: ["format"] },
-  getDatabase:       { args: ["dbId"], options: [] },
-  queryDatabase:     { args: ["dbId"], options: ["filter", "sorts", "limit", "format"] },
-  getTree:           { args: ["pageId"], options: ["depth"] },
-  exportPage:        { args: ["pageId", "path"], options: [] },
-  exportDatabase:    { args: ["dbId", "path"], options: ["format"] },
-  getComments:       { args: ["pageId"], options: [] },
-  getUsers:          { args: [], options: [] },
+  search: { args: ["query"], options: ["type"] },
+  getPage: { args: ["pageId"], options: ["format"] },
+  getDatabase: { args: ["dbId"], options: [] },
+  queryDatabase: { args: ["dbId"], options: ["filter", "sorts", "limit", "format"] },
+  getTree: { args: ["pageId"], options: ["depth"] },
+  exportPage: { args: ["pageId", "path"], options: [] },
+  exportDatabase: { args: ["dbId", "path"], options: ["format"] },
+  getComments: { args: ["pageId"], options: [] },
+  getUsers: { args: [], options: [] },
   // WRITE
-  createPage:        { args: ["parentId", "title", "content"], options: ["parentType"] },
-  updatePage:        { args: ["pageId", "content"], options: [] },
-  appendBlocks:      { args: ["pageId", "content"], options: [] },
-  insertBlocks:      { args: ["pageId", "content"], options: ["after", "atHeading", "atStart"] },
-  setProperties:     { args: ["pageId", "props"], options: [] },
-  addComment:        { args: ["pageId", "text"], options: [] },
-  lockPage:          { args: ["pageId"], options: [] },
-  unlockPage:        { args: ["pageId"], options: [] },
-  createDatabase:    { args: ["parentId", "title", "schema"], options: [] },
-  addDatabaseEntry:  { args: ["dbId", "values"], options: [] },
+  createPage: { args: ["parentId", "title", "content"], options: ["parentType"] },
+  updatePage: { args: ["pageId", "content"], options: [] },
+  appendBlocks: { args: ["pageId", "content"], options: [] },
+  insertBlocks: { args: ["pageId", "content"], options: ["after", "atHeading", "atStart"] },
+  setProperties: { args: ["pageId", "props"], options: [] },
+  addComment: { args: ["pageId", "text"], options: [] },
+  lockPage: { args: ["pageId"], options: [] },
+  unlockPage: { args: ["pageId"], options: [] },
+  createDatabase: { args: ["parentId", "title", "schema"], options: [] },
+  addDatabaseEntry: { args: ["dbId", "values"], options: [] },
   // STRUCTURAL
-  moveBlocks:        { args: ["sourcePageId", "targetPageId", "blockIds"], options: ["position"] },
-  movePage:          { args: ["pageId", "newParentId"], options: ["parentType"] },
-  reorderBlocks:     { args: ["pageId", "newOrder"], options: [] },
-  deepCopy:          { args: ["sourcePageId", "targetParentId"], options: [] },
-  copyPageWith:      { args: ["sourcePageId", "targetParentId", "title"], options: ["appendMd", "prependMd", "replaceTitle"] },
-  mergePages:        { args: ["sourcePageIds", "targetPageId"], options: ["archiveSources"] },
-  splitPage:         { args: ["pageId"], options: ["headingLevel", "createUnderSamePage"] },
-  extractSection:    { args: ["pageId", "headingText"], options: [] },
-  replaceSection:    { args: ["pageId", "headingText", "content"], options: [] },
-  flattenPage:       { args: ["pageId"], options: [] },
+  moveBlocks: { args: ["sourcePageId", "targetPageId", "blockIds"], options: ["position"] },
+  movePage: { args: ["pageId", "newParentId"], options: ["parentType"] },
+  reorderBlocks: { args: ["pageId", "newOrder"], options: [] },
+  deepCopy: { args: ["sourcePageId", "targetParentId"], options: [] },
+  copyPageWith: {
+    args: ["sourcePageId", "targetParentId", "title"],
+    options: ["appendMd", "prependMd", "replaceTitle"],
+  },
+  mergePages: { args: ["sourcePageIds", "targetPageId"], options: ["archiveSources"] },
+  splitPage: { args: ["pageId"], options: ["headingLevel", "createUnderSamePage"] },
+  extractSection: { args: ["pageId", "headingText"], options: [] },
+  replaceSection: { args: ["pageId", "headingText", "content"], options: [] },
+  flattenPage: { args: ["pageId"], options: [] },
   nestUnderHeadings: { args: ["pageId"], options: ["headingLevel"] },
-  duplicateStructure:{ args: ["sourcePageId", "targetParentId"], options: [] },
-  applyTemplate:     { args: ["templatePageId", "targetParentId", "variables"], options: [] },
+  duplicateStructure: { args: ["sourcePageId", "targetParentId"], options: [] },
+  applyTemplate: { args: ["templatePageId", "targetParentId", "variables"], options: [] },
   // BATCH
-  batchSetProperties:{ args: ["pageIds", "props"], options: [] },
-  batchArchive:      { args: ["pageIds"], options: [] },
-  batchTag:          { args: ["pageIds", "property", "value"], options: [] },
+  batchSetProperties: { args: ["pageIds", "props"], options: [] },
+  batchArchive: { args: ["pageIds"], options: [] },
+  batchTag: { args: ["pageIds", "property", "value"], options: [] },
   // SAFETY
-  snapshot:          { args: ["pageId"], options: [] },
-  restore:           { args: ["snapId"], options: [] },
-  backupPage:        { args: ["pageId", "dirPath"], options: [] },
-  backupDatabase:    { args: ["dbId", "dirPath"], options: [] },
-  transact:          { args: ["operations"], options: [] },
+  snapshot: { args: ["pageId"], options: [] },
+  restore: { args: ["snapId"], options: [] },
+  backupPage: { args: ["pageId", "dirPath"], options: [] },
+  backupDatabase: { args: ["dbId", "dirPath"], options: [] },
+  transact: { args: ["operations"], options: [] },
   // ANALYSIS
-  workspaceMap:      { args: [], options: [] },
-  pageStats:         { args: ["pageId"], options: [] },
-  diffPages:         { args: ["pageId1", "pageId2"], options: [] },
-  findDuplicates:    { args: [], options: [] },
-  findOrphans:       { args: [], options: [] },
-  findEmpty:         { args: [], options: [] },
-  findStale:         { args: ["days"], options: [] },
+  workspaceMap: { args: [], options: [] },
+  pageStats: { args: ["pageId"], options: [] },
+  diffPages: { args: ["pageId1", "pageId2"], options: [] },
+  findDuplicates: { args: [], options: [] },
+  findOrphans: { args: [], options: [] },
+  findEmpty: { args: [], options: [] },
+  findStale: { args: ["days"], options: [] },
   suggestReorganization: { args: ["pageId"], options: [] },
 };
 
@@ -1585,16 +1675,28 @@ function resolveAction(name) {
  *  Returns { positional: string[], flags: Record<string, string> } */
 // Map short/natural flag names to the actual arg/option names used by actions
 const FLAG_ALIASES = {
-  source: "sourcePageId", src: "sourcePageId",
-  parent: "targetParentId", target: "targetParentId", dest: "targetParentId",
-  page: "pageId", id: "pageId",
-  db: "dbId", database: "dbId",
-  append: "appendMd", prepend: "prependMd",
-  content: "content", md: "content",
-  title: "title", name: "title",
-  query: "query", q: "query",
-  filter: "filter", sort: "sorts", sorts: "sorts",
-  depth: "depth", after: "after",
+  source: "sourcePageId",
+  src: "sourcePageId",
+  parent: "targetParentId",
+  target: "targetParentId",
+  dest: "targetParentId",
+  page: "pageId",
+  id: "pageId",
+  db: "dbId",
+  database: "dbId",
+  append: "appendMd",
+  prepend: "prependMd",
+  content: "content",
+  md: "content",
+  title: "title",
+  name: "title",
+  query: "query",
+  q: "query",
+  filter: "filter",
+  sort: "sorts",
+  sorts: "sorts",
+  depth: "depth",
+  after: "after",
 };
 
 function parseCliArgs(rawArgs) {
@@ -1621,7 +1723,7 @@ function parseCliArgs(rawArgs) {
 
 /** CLI output formatters for simple-args mode */
 function formatSearchResults(results) {
-  return results.map(r => `  [${r.type}] ${r.title} (${r.id})`).join("\n");
+  return results.map((r) => `  [${r.type}] ${r.title} (${r.id})`).join("\n");
 }
 
 function formatWorkspaceMap(data) {
@@ -1632,7 +1734,7 @@ function formatWorkspaceMap(data) {
 }
 
 function formatDuplicates(groups) {
-  return groups.map(g => `  "${g.title}" — ${g.count} copies`).join("\n");
+  return groups.map((g) => `  "${g.title}" — ${g.count} copies`).join("\n");
 }
 
 /** Format queryDatabase entries as a compact markdown table with row IDs */
@@ -1649,20 +1751,17 @@ function formatQueryResults(entries) {
     let v = extractPropertyValue(prop);
     if (typeof v !== "string") v = JSON.stringify(v);
     v = v.replace(/\|/g, "\\|").replace(/\n/g, " ");
-    if (v.length > 80) v = v.slice(0, 79) + "…";
+    if (v.length > 80) v = `${v.slice(0, 79)}…`;
     return v;
   };
 
   const header = ["ID", ...cols];
-  const lines = [
-    "| " + header.join(" | ") + " |",
-    "| " + header.map(() => "---").join(" | ") + " |",
-  ];
+  const lines = [`| ${header.join(" | ")} |`, `| ${header.map(() => "---").join(" | ")} |`];
 
   for (const entry of entries) {
     const id = (entry.id || "").replace(/-/g, "").slice(-4);
-    const cells = [id, ...cols.map(c => cellValue(entry, c))];
-    lines.push("| " + cells.join(" | ") + " |");
+    const cells = [id, ...cols.map((c) => cellValue(entry, c))];
+    lines.push(`| ${cells.join(" | ")} |`);
   }
 
   lines.push("");
@@ -1727,12 +1826,12 @@ function printHelp() {
   };
   const lines = ["Usage: node actions.mjs <action> [args...]\n"];
   for (const [name, spec] of Object.entries(ACTIONS)) {
-    const sig = [...spec.args.map(a => `<${a}>`), ...spec.options.map(o => `[--${o}]`)].join(" ");
+    const sig = [...spec.args.map((a) => `<${a}>`), ...spec.options.map((o) => `[--${o}]`)].join(" ");
     lines.push(`  ${name.padEnd(24)} ${sig.padEnd(44)} ${desc[name] || ""}`);
   }
   lines.push("");
   lines.push("queryDatabase returns markdown by default. Use --format raw for JSON.");
-  lines.push("Stdin: echo '{\"action\":\"...\"}' | node actions.mjs -");
+  lines.push('Stdin: echo \'{"action":"..."}\' | node actions.mjs -');
   console.log(lines.join("\n"));
 }
 
@@ -1765,11 +1864,17 @@ async function main() {
 
     const spec = ACTIONS[actionName];
     if (!spec) {
-      console.log(JSON.stringify({ success: false, error: `Unknown action: ${req.action}. Run with --help to see available actions.` }, null, 2));
+      console.log(
+        JSON.stringify(
+          { success: false, error: `Unknown action: ${req.action}. Run with --help to see available actions.` },
+          null,
+          2,
+        ),
+      );
       process.exit(1);
     }
 
-    const positional = spec.args.map(name => req[name]);
+    const positional = spec.args.map((name) => req[name]);
     const options = {};
     for (const opt of spec.options) {
       if (req[opt] !== undefined) options[opt] = req[opt];
@@ -1793,7 +1898,13 @@ async function main() {
 
     const spec = ACTIONS[actionName];
     if (!spec) {
-      console.log(JSON.stringify({ success: false, error: `Unknown action: ${req.action}. Run with --help to see available actions.` }, null, 2));
+      console.log(
+        JSON.stringify(
+          { success: false, error: `Unknown action: ${req.action}. Run with --help to see available actions.` },
+          null,
+          2,
+        ),
+      );
       process.exit(1);
     }
 
@@ -1807,7 +1918,7 @@ async function main() {
     }
 
     // Map named params to positional args + options
-    const positional = spec.args.map(name => req[name]);
+    const positional = spec.args.map((name) => req[name]);
     const options = {};
     for (const opt of spec.options) {
       if (req[opt] !== undefined) options[opt] = req[opt];
@@ -1826,9 +1937,13 @@ async function main() {
     const { positional, flags } = parseCliArgs(rawArgs);
 
     // Parse positional args (JSON auto-detection)
-    const parsedPositional = positional.map(a => {
+    const parsedPositional = positional.map((a) => {
       if (a.startsWith("{") || a.startsWith("[")) {
-        try { return JSON.parse(a); } catch { return a; }
+        try {
+          return JSON.parse(a);
+        } catch {
+          return a;
+        }
       }
       return a;
     });
@@ -1839,7 +1954,11 @@ async function main() {
       if (flags[opt] !== undefined) {
         const v = flags[opt];
         if (v.startsWith("{") || v.startsWith("[")) {
-          try { options[opt] = JSON.parse(v); } catch { options[opt] = v; }
+          try {
+            options[opt] = JSON.parse(v);
+          } catch {
+            options[opt] = v;
+          }
         } else {
           options[opt] = v;
         }
@@ -1851,7 +1970,11 @@ async function main() {
       if (parsedPositional[i] === undefined && flags[argName] !== undefined) {
         const v = flags[argName];
         if (v.startsWith("{") || v.startsWith("[")) {
-          try { parsedPositional[i] = JSON.parse(v); } catch { parsedPositional[i] = v; }
+          try {
+            parsedPositional[i] = JSON.parse(v);
+          } catch {
+            parsedPositional[i] = v;
+          }
         } else {
           parsedPositional[i] = v;
         }
@@ -1869,7 +1992,9 @@ async function main() {
 
   // Capture CLI-only format option (e.g. --format raw) before dispatch
   const spec = ACTIONS[actionName];
-  const cliFormat = spec?.options.includes("format") ? (methodArgs.find(a => a && typeof a === "object" && a.format)?.format) : undefined;
+  const cliFormat = spec?.options.includes("format")
+    ? methodArgs.find((a) => a && typeof a === "object" && a.format)?.format
+    : undefined;
 
   try {
     const result = await method.call(na, ...methodArgs);
@@ -1880,10 +2005,15 @@ async function main() {
       // Simple-args mode: special formatters
       if (actionName === "queryDatabase" && Array.isArray(result) && cliFormat !== "raw") {
         console.log(formatQueryResults(result));
-      } else if (actionName === "search") { console.log(formatSearchResults(result)); }
-      else if (actionName === "workspaceMap") { console.log(formatWorkspaceMap(result)); }
-      else if (actionName === "findDuplicates") { console.log(formatDuplicates(result)); }
-      else { console.log(JSON.stringify(result, null, 2)); }
+      } else if (actionName === "search") {
+        console.log(formatSearchResults(result));
+      } else if (actionName === "workspaceMap") {
+        console.log(formatWorkspaceMap(result));
+      } else if (actionName === "findDuplicates") {
+        console.log(formatDuplicates(result));
+      } else {
+        console.log(JSON.stringify(result, null, 2));
+      }
     } else {
       // JSON file mode: still format queryDatabase as markdown unless raw
       if (actionName === "queryDatabase" && Array.isArray(result) && cliFormat !== "raw") {
@@ -1907,8 +2037,22 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
 // Named exports for testing and programmatic use
 export {
-  RateLimiter, richTextToMd, blocksToMarkdown, textToRichText, markdownToBlocks,
-  makeTextBlock, makeHeadingBlock, makeCodeBlock, recreateBlock,
-  extractTitle, extractDbTitle, extractPropertyValue, buildPropertyValue,
-  normalizeId, safeName, csvEscape, ACTIONS, toCamelCase,
+  ACTIONS,
+  blocksToMarkdown,
+  buildPropertyValue,
+  csvEscape,
+  extractDbTitle,
+  extractPropertyValue,
+  extractTitle,
+  makeCodeBlock,
+  makeHeadingBlock,
+  makeTextBlock,
+  markdownToBlocks,
+  normalizeId,
+  RateLimiter,
+  recreateBlock,
+  richTextToMd,
+  safeName,
+  textToRichText,
+  toCamelCase,
 };
