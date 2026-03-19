@@ -4,10 +4,19 @@
  * API version 2025-09-03 · @notionhq/client ^5.9.0
  */
 
-import "dotenv/config";
 import { Client } from "@notionhq/client";
 import { writeFile, readFile, mkdir } from "fs/promises";
 import { join, dirname } from "path";
+
+// Load .env from plugin root (replaces dotenv dependency)
+try {
+  const _pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || join(dirname(new URL(import.meta.url).pathname), "..");
+  const env = await readFile(join(_pluginRoot, ".env"), "utf-8").catch(() => "");
+  for (const line of env.split("\n")) {
+    const m = line.match(/^([A-Z_]+)=(.+)$/);
+    if (m && !(m[1] in process.env)) process.env[m[1]] = m[2].trim();
+  }
+} catch {}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // RateLimiter — 400ms minimum interval with promise-queue mutex
