@@ -1,0 +1,17 @@
+{
+  "name": "notion-agent-cli-marketplace",
+  "owner": {
+    "name": "jgorostegui"
+  },
+  "description": "CLI-based, task-oriented Notion tooling for Claude Code.",
+  "plugins": [
+    {
+      "name": "notion-agent-cli",
+      "description": "A CLI-based alternative to the official Notion MCP integration for Claude Code, with markdown I/O and higher-level actions for common workflows.",
+      "source": {
+        "source": "github",
+        "repo": "jgorostegui/notion-agent-cli"
+      }
+    }
+  ]
+}

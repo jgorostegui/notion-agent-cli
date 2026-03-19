@@ -1,0 +1,24 @@
+{
+  "name": "notion-agent-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "scripts/actions.mjs",
+  "scripts": {
+    "setup": "npm install && node scripts/setup.mjs",
+    "test": "node --test tests/**/*.test.mjs tests/**/*.prop.mjs",
+    "test:unit": "node --test tests/unit/*.test.mjs",
+    "test:prop": "node --test tests/property/*.prop.mjs",
+    "bench": "uv run --project benchmark benchmark/run.py all"
+  },
+  "dependencies": {
+    "@notionhq/client": "^5.9.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "fast-check": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

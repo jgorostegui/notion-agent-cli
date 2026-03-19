@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.venv/
+benchmark/.venv/
+
+# Claude Code
+.claude/
+CLAUDE.md
+
+# Benchmark results (large JSONL files, regenerated per run)
+benchmark/results/
+benchmark/uv.lock
+
+# Reference repos and internal notes (not part of this project)
+__*/
+__*
+
+# Direnv
+.envrc
+
+# Jupyter
+.ipynb_checkpoints/
+benchmark/.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,7 @@
+The benchmark system targets five primary objectives that guide scenario design, metric selection, and analysis methodology:
+
+- **Measure token efficiency**: Quantify the difference in total token consumption (input + output) between high-level CLI abstractions and low-level MCP tool calls across tasks of varying complexity.
+- **Assess cost predictability**: Determine whether compound CLI actions produce more consistent (lower variance) costs across repeated executions compared to MCP's flexible but non-deterministic orchestration.
+- **Identify the crossover point**: Find the task complexity threshold at which the CLI's fixed skill-invocation overhead is offset by its per-action token savings, establishing when each approach is preferable.
+- **Validate correctness parity**: Confirm that both integration paths produce functionally equivalent results — pages with the same content structure, properties with the correct values, sections replaced accurately — so that cost comparisons are meaningful.
+- **Inform tool design decisions**: Generate actionable data on which CLI actions deliver the highest ROI (cost saved per engineering hour invested) to prioritize future development of compound actions.

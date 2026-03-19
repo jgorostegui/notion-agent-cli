@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# MCP benchmark wrapper: isolated HOME with Notion MCP plugin, empty workdir.
+ORIG_HOME="$HOME"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+export HOME="$ORIG_HOME/.claude-bench-mcp"
+cd "$SCRIPT_DIR/workdir"
+claude "$@"

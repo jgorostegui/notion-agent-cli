@@ -1,0 +1,268 @@
+[
+  {
+    "id": 1,
+    "prompt": "Read my Notion page 31d7dba042768143b235ce0b7cd9771c and give me a summary of what's in it.",
+    "should_trigger": true,
+    "scenario": "S1",
+    "notes": "Direct page read"
+  },
+  {
+    "id": 2,
+    "prompt": "I need to create a new page under 31d7dba0427681e5ba45f77aa9db660d with the title 'Weekly Standup Notes' and some bullet points about our progress.",
+    "should_trigger": true,
+    "scenario": "S1",
+    "notes": "Page creation"
+  },
+  {
+    "id": 3,
+    "prompt": "Can you query my Notion database 3f8249fc8c6c4996839666c50a1f8cd2 and tell me how many entries have Status set to 'Done'?",
+    "should_trigger": true,
+    "scenario": "S2",
+    "notes": "Database query"
+  },
+  {
+    "id": 4,
+    "prompt": "Pull all the rows from my project tracker database 3f8249fc8c6c4996839666c50a1f8cd2 and generate a report page listing each task.",
+    "should_trigger": true,
+    "scenario": "S2",
+    "notes": "Query + report creation"
+  },
+  {
+    "id": 5,
+    "prompt": "Duplicate the page at 31d7dba042768143b235ce0b7cd9771c and put the copy under 31d7dba0427681e5ba45f77aa9db660d. Add a section called 'Changes' explaining this is a working copy.",
+    "should_trigger": true,
+    "scenario": "S3",
+    "notes": "Copy with modifications"
+  },
+  {
+    "id": 6,
+    "prompt": "Set the Status property on my Notion entry 31d7dba0427681798a5ee2e7b1e7aaea to 'In Progress'.",
+    "should_trigger": true,
+    "scenario": "S4",
+    "notes": "Single property update"
+  },
+  {
+    "id": 7,
+    "prompt": "In my Notion page 31d7dba042768143b235ce0b7cd9771c, find the section under 'Goals' and replace it with new content about Q2 objectives.",
+    "should_trigger": true,
+    "scenario": "S5",
+    "notes": "Section replacement"
+  },
+  {
+    "id": 8,
+    "prompt": "Take these three Notion pages — 31d7dba04276817bbf1dc5589d24b0b1, 31d7dba0427681ff91e0ceef5cadd634, 31d7dba0427681d2abd6ff7d0f22cfce — and merge them into a single new page under 31d7dba0427681e5ba45f77aa9db660d.",
+    "should_trigger": true,
+    "scenario": "S6",
+    "notes": "Multi-page merge"
+  },
+  {
+    "id": 9,
+    "prompt": "Update the Status property to 'Reviewed' on all of these database entries: 31d7dba0427681798a5ee2e7b1e7aaea, 31d7dba0427681a18996e7a8af8b60c6, 31d7dba0427681bfb0b9fa9668fecf4a.",
+    "should_trigger": true,
+    "scenario": "S7",
+    "notes": "Batch property update"
+  },
+  {
+    "id": 10,
+    "prompt": "Make a copy of 31d7dba042768143b235ce0b7cd9771c under 31d7dba0427681e5ba45f77aa9db660d. Keep all the original content and append a 'Review Notes' section at the end.",
+    "should_trigger": true,
+    "scenario": "S8",
+    "notes": "Copy + append"
+  },
+  {
+    "id": 11,
+    "prompt": "Search my Notion workspace for any pages mentioning 'product roadmap'.",
+    "should_trigger": true,
+    "scenario": "search",
+    "notes": "Workspace search"
+  },
+  {
+    "id": 12,
+    "prompt": "Show me a map of my entire Notion workspace so I can see the page hierarchy.",
+    "should_trigger": true,
+    "scenario": "workspaceMap",
+    "notes": "Workspace map"
+  },
+  {
+    "id": 13,
+    "prompt": "I want to archive the Notion page 31d7dba042768143b235ce0b7cd9771c — it's outdated and we don't need it anymore.",
+    "should_trigger": true,
+    "scenario": "archive",
+    "notes": "Page archival"
+  },
+  {
+    "id": 14,
+    "prompt": "Add a comment to the Notion page 31d7dba042768143b235ce0b7cd9771c saying 'Reviewed by engineering team on March 14'.",
+    "should_trigger": true,
+    "scenario": "comment",
+    "notes": "Add comment"
+  },
+  {
+    "id": 15,
+    "prompt": "Find all duplicate pages in my Notion workspace that have similar titles.",
+    "should_trigger": true,
+    "scenario": "findDuplicates",
+    "notes": "Duplicate detection"
+  },
+  {
+    "id": 16,
+    "prompt": "Compare these two Notion pages side by side: 31d7dba042768143b235ce0b7cd9771c and 31d7dba04276817bbf1dc5589d24b0b1.",
+    "should_trigger": true,
+    "scenario": "comparePages",
+    "notes": "Page comparison"
+  },
+  {
+    "id": 17,
+    "prompt": "Apply the template page 31d7dba042768143b235ce0b7cd9771c to create a new page under 31d7dba0427681e5ba45f77aa9db660d, replacing {{project_name}} with 'Atlas' and {{date}} with '2026-03-14'.",
+    "should_trigger": true,
+    "scenario": "applyTemplate",
+    "notes": "Template application"
+  },
+  {
+    "id": 18,
+    "prompt": "what's on my notion page 31d7dba042768143b235ce0b7cd9771c? just give me the highlights",
+    "should_trigger": true,
+    "scenario": "S1",
+    "notes": "Casual phrasing, lowercase"
+  },
+  {
+    "id": 19,
+    "prompt": "hey can you grab everything from notion db 3f8249fc8c6c4996839666c50a1f8cd2 and make a summary page? put it under 31d7dba0427681e5ba45f77aa9db660d",
+    "should_trigger": true,
+    "scenario": "S2",
+    "notes": "Casual, abbreviated phrasing"
+  },
+  {
+    "id": 20,
+    "prompt": "Move the page 31d7dba042768143b235ce0b7cd9771c to be a child of 31d7dba0427681e5ba45f77aa9db660d.",
+    "should_trigger": true,
+    "scenario": "move",
+    "notes": "Page move"
+  },
+  {
+    "id": 21,
+    "prompt": "Split the page 31d7dba042768143b235ce0b7cd9771c into subpages at each H2 heading.",
+    "should_trigger": true,
+    "scenario": "splitPage",
+    "notes": "Page splitting"
+  },
+  {
+    "id": 22,
+    "prompt": "Export my Notion page 31d7dba042768143b235ce0b7cd9771c to markdown and save it to /tmp/export.md.",
+    "should_trigger": true,
+    "scenario": "export",
+    "notes": "Export to markdown"
+  },
+  {
+    "id": 23,
+    "prompt": "Append a paragraph to the bottom of my Notion page 31d7dba042768143b235ce0b7cd9771c: 'This page was last updated on March 14, 2026.'",
+    "should_trigger": true,
+    "scenario": "appendBlocks",
+    "notes": "Append content"
+  },
+  {
+    "id": 24,
+    "prompt": "Get the database schema for 3f8249fc8c6c4996839666c50a1f8cd2 — I want to see what properties are defined.",
+    "should_trigger": true,
+    "scenario": "getDatabase",
+    "notes": "Database schema inspection"
+  },
+  {
+    "id": 25,
+    "prompt": "Write a Python script that connects to a PostgreSQL database and exports the users table to CSV.",
+    "should_trigger": false,
+    "scenario": null,
+    "notes": "Non-Notion database"
+  },
+  {
+    "id": 26,
+    "prompt": "How does the benchmark runner work? Walk me through the run.py code.",
+    "should_trigger": false,
+    "scenario": null,
+    "notes": "Discussion about plugin code"
+  },
+  {
+    "id": 27,
+    "prompt": "Scrape the Wikipedia page for 'Large language model' and summarize the key sections.",
+    "should_trigger": false,
+    "scenario": null,
+    "notes": "Web scraping, not Notion"
+  },
+  {
+    "id": 28,
+    "prompt": "Parse the benchmark results from the last run and create a comparison chart. The data is in benchmark/results/.",
+    "should_trigger": false,
+    "scenario": null,
+    "notes": "Benchmark analysis, not Notion operations"
+  },
+  {
+    "id": 29,
+    "prompt": "Create a SQLite database with tables for users and orders, then insert some sample data.",
+    "should_trigger": false,
+    "scenario": null,
+    "notes": "Non-Notion database creation"
+  },
+  {
+    "id": 30,
+    "prompt": "Set up a REST API using Express.js that serves CRUD endpoints for a to-do list.",
+    "should_trigger": false,
+    "scenario": null,
+    "notes": "Generic web development"
+  },
+  {
+    "id": 31,
+    "prompt": "Can you fix the bug in benchmark/fixture-reset.mjs? The section reset logic isn't working right.",
+    "should_trigger": false,
+    "scenario": null,
+    "notes": "Bug fix in plugin code, not Notion operation"
+  },
+  {
+    "id": 32,
+    "prompt": "Read the file at /home/josugoros/GoogleDrive/02_code/notion-skill/scripts/actions.mjs and explain what the mergePages function does.",
+    "should_trigger": false,
+    "scenario": null,
+    "notes": "Reading source code, not invoking Notion operations"
+  },
+  {
+    "id": 33,
+    "prompt": "Help me write unit tests for the notion-agent-cli CLI. I want to test the createPage action.",
+    "should_trigger": false,
+    "scenario": null,
+    "notes": "Writing tests for plugin, not using it"
+  },
+  {
+    "id": 34,
+    "prompt": "What's the difference between Notion's MCP server and the notion-agent-cli plugin? Explain the architecture.",
+    "should_trigger": false,
+    "scenario": null,
+    "notes": "Architectural discussion, not operation"
+  },
+  {
+    "id": 35,
+    "prompt": "Fetch data from the GitHub API for the anthropics/claude-code repo and list the recent issues.",
+    "should_trigger": false,
+    "scenario": null,
+    "notes": "Non-Notion API"
+  },
+  {
+    "id": 36,
+    "prompt": "Query the MongoDB collection 'products' and return all items with price > 100.",
+    "should_trigger": false,
+    "scenario": null,
+    "notes": "Non-Notion database query"
+  },
+  {
+    "id": 37,
+    "prompt": "Update the README.md with instructions on how to configure the Notion integration token.",
+    "should_trigger": false,
+    "scenario": null,
+    "notes": "File editing, mentions Notion but not an operation"
+  },
+  {
+    "id": 38,
+    "prompt": "Run the benchmark suite: uv run --project benchmark benchmark/run.py all -s 1-8 -n 3",
+    "should_trigger": false,
+    "scenario": null,
+    "notes": "Running benchmark, not Notion operation"
+  }
+]
