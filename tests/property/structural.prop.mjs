@@ -85,11 +85,11 @@ describe("Property 10: Markdown splitting at heading boundaries", () => {
 
 describe("Property 11: Section extraction captures correct range", () => {
   it("captures from matching heading to next heading of same or higher level", () => {
-    // Use unique prefixed titles to avoid substring matching issues
+    // Use unique prefixed titles with separators to avoid substring matching
     fc.assert(
       fc.property(fc.integer({ min: 1, max: 999 }), safeText, fc.integer({ min: 1, max: 999 }), (id1, body1, id2) => {
-        const title1 = `Section${id1}`;
-        const title2 = `Section${id1 === id2 ? id2 + 1000 : id2}`;
+        const title1 = `Section-A${id1}`;
+        const title2 = `Section-B${id1 === id2 ? id2 + 1000 : id2}`;
         const md = `## ${title1}\n\n${body1}\n\n## ${title2}\n\nOther content`;
         const lines = md.split("\n");
 
