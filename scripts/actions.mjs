@@ -168,13 +168,57 @@ function textToRichText(text) {
   if (text === undefined || text === null || text === "") {
     return [{ type: "text", text: { content: "" } }];
   }
-  const chunks = [];
-  let remaining = String(text);
-  while (remaining.length > 0) {
-    chunks.push({ type: "text", text: { content: remaining.slice(0, 2000) } });
-    remaining = remaining.slice(2000);
+  const src = String(text);
+  const spans = [];
+  // Regex for inline markdown tokens (order matters: bold before italic)
+  const inlineRe =
+    /(\[([^\]]+)\]\(([^)]+)\))|(`([^`]+)`)|(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(~~([^~]+)~~)/g;
+  let last = 0;
+  let m;
+  while ((m = inlineRe.exec(src)) !== null) {
+    // Plain text before this match
+    if (m.index > last) {
+      pushChunked(spans, src.slice(last, m.index), {});
+    }
+    if (m[1]) {
+      // Link: [text](url)
+      pushChunked(spans, m[2], {}, m[3]);
+    } else if (m[4]) {
+      // Inline code: `text`
+      pushChunked(spans, m[5], { code: true });
+    } else if (m[6]) {
+      // Bold: **text**
+      pushChunked(spans, m[7], { bold: true });
+    } else if (m[8]) {
+      // Italic: *text*
+      pushChunked(spans, m[9], { italic: true });
+    } else if (m[10]) {
+      // Strikethrough: ~~text~~
+      pushChunked(spans, m[11], { strikethrough: true });
+    }
+    last = m.index + m[0].length;
   }
-  return chunks;
+  // Trailing plain text
+  if (last < src.length) {
+    pushChunked(spans, src.slice(last), {});
+  }
+  return spans.length ? spans : [{ type: "text", text: { content: "" } }];
+}
+
+/** Push rich_text spans, chunking at 2000 chars to respect Notion API limits */
+function pushChunked(spans, content, annotations, href) {
+  const ann = Object.keys(annotations).length
+    ? { bold: false, italic: false, strikethrough: false, underline: false, code: false, color: "default", ...annotations }
+    : undefined;
+  let remaining = content;
+  while (remaining.length > 0) {
+    const chunk = remaining.slice(0, 2000);
+    remaining = remaining.slice(2000);
+    const span = { type: "text", text: { content: chunk } };
+    if (ann) span.annotations = ann;
+    if (href) span.text.link = { url: href };
+    spans.push(span);
+  }
 }
 
 /** Parse markdown into Notion block objects */

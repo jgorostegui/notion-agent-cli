@@ -1,6 +1,6 @@
 {
   "name": "notion-agent-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "scripts/actions.mjs",
   "scripts": {
@@ -12,7 +12,8 @@
     "lint": "biome check",
     "lint:fix": "biome check --fix",
     "format": "biome format --write",
-    "bench": "uv run --project benchmark benchmark/run.py all"
+    "bench": "uv run --project benchmark benchmark/run.py all",
+    "bump": "node scripts/bump.mjs"
   },
   "dependencies": {
     "@notionhq/client": "^5.9.0"

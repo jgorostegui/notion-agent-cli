@@ -60,6 +60,60 @@ describe("textToRichText", () => {
     const joined = result.map((r) => r.text.content).join("");
     assert.equal(joined, text);
   });
+
+  it("parses **bold** into annotated span", () => {
+    const result = textToRichText("hello **world** end");
+    assert.equal(result.length, 3);
+    assert.equal(result[0].text.content, "hello ");
+    assert.equal(result[1].text.content, "world");
+    assert.equal(result[1].annotations.bold, true);
+    assert.equal(result[2].text.content, " end");
+  });
+
+  it("parses *italic* into annotated span", () => {
+    const result = textToRichText("go *fast* now");
+    assert.equal(result.length, 3);
+    assert.equal(result[1].text.content, "fast");
+    assert.equal(result[1].annotations.italic, true);
+  });
+
+  it("parses ~~strikethrough~~ into annotated span", () => {
+    const result = textToRichText("was ~~removed~~ ok");
+    assert.equal(result.length, 3);
+    assert.equal(result[1].text.content, "removed");
+    assert.equal(result[1].annotations.strikethrough, true);
+  });
+
+  it("parses `inline code` into annotated span", () => {
+    const result = textToRichText("run `npm test` now");
+    assert.equal(result.length, 3);
+    assert.equal(result[1].text.content, "npm test");
+    assert.equal(result[1].annotations.code, true);
+  });
+
+  it("parses [link](url) into span with href", () => {
+    const result = textToRichText("see [docs](https://example.com) here");
+    assert.equal(result.length, 3);
+    assert.equal(result[1].text.content, "docs");
+    assert.equal(result[1].text.link.url, "https://example.com");
+  });
+
+  it("handles multiple inline markers in one string", () => {
+    const result = textToRichText("**bold** and *italic*");
+    assert.equal(result.length, 3);
+    assert.equal(result[0].text.content, "bold");
+    assert.equal(result[0].annotations.bold, true);
+    assert.equal(result[1].text.content, " and ");
+    assert.equal(result[2].text.content, "italic");
+    assert.equal(result[2].annotations.italic, true);
+  });
+
+  it("returns plain spans for text with no inline markdown", () => {
+    const result = textToRichText("just plain text");
+    assert.equal(result.length, 1);
+    assert.equal(result[0].text.content, "just plain text");
+    assert.equal(result[0].annotations, undefined);
+  });
 });
 
 describe("markdownToBlocks", () => {
