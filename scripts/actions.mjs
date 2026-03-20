@@ -224,9 +224,49 @@ function pushChunked(spans, content, annotations, href) {
 /** Parse markdown into Notion block objects */
 function markdownToBlocks(md) {
   if (!md?.trim()) return [];
-  const blocks = [];
   const lines = md.split("\n");
   let i = 0;
+
+  /** Return the indentation level (number of leading spaces) for a line */
+  function indent(line) {
+    const m = line.match(/^(\s*)/);
+    return m ? m[1].length : 0;
+  }
+
+  /**
+   * Collect consecutive indented list items as children of a parent block.
+   * `minIndent` is the minimum indentation that counts as a child.
+   */
+  function collectChildren(minIndent) {
+    const children = [];
+    while (i < lines.length) {
+      const ln = lines[i];
+      const lvl = indent(ln);
+      const stripped = ln.trim();
+      if (!stripped || lvl < minIndent) break;
+      // Must be a list item at this indent level
+      const bulletChild = stripped.match(/^[-*]\s+(.*)/);
+      const numChild = stripped.match(/^\d+\.\s+(.*)/);
+      if (bulletChild) {
+        const block = makeTextBlock("bulleted_list_item", bulletChild[1]);
+        i++;
+        const nested = collectChildren(lvl + 2);
+        if (nested.length) block.bulleted_list_item.children = nested;
+        children.push(block);
+      } else if (numChild) {
+        const block = makeTextBlock("numbered_list_item", numChild[1]);
+        i++;
+        const nested = collectChildren(lvl + 2);
+        if (nested.length) block.numbered_list_item.children = nested;
+        children.push(block);
+      } else {
+        break;
+      }
+    }
+    return children;
+  }
+
+  const blocks = [];
 
   while (i < lines.length) {
     const line = lines[i];
@@ -251,8 +291,10 @@ function markdownToBlocks(md) {
       continue;
     }
 
+    const stripped = trimmed.trimStart();
+
     // To-do (must be before bullet)
-    const todoMatch = trimmed.match(/^-\s+\[([ x])\]\s+(.*)/);
+    const todoMatch = stripped.match(/^-\s+\[([ x])\]\s+(.*)/);
     if (todoMatch) {
       blocks.push({
         object: "block",
@@ -264,38 +306,46 @@ function markdownToBlocks(md) {
     }
 
     // Headings
-    const headingMatch = trimmed.match(/^(#{1,3})\s+(.*)/);
+    const headingMatch = stripped.match(/^(#{1,3})\s+(.*)/);
     if (headingMatch) {
       blocks.push(makeHeadingBlock(headingMatch[1].length, headingMatch[2]));
       i++;
       continue;
     }
 
-    // Bullet list
-    const bulletMatch = trimmed.match(/^[-*]\s+(.*)/);
+    // Bullet list (with nested children support)
+    const bulletMatch = stripped.match(/^[-*]\s+(.*)/);
     if (bulletMatch) {
-      blocks.push(makeTextBlock("bulleted_list_item", bulletMatch[1]));
+      const parentIndent = indent(line);
+      const block = makeTextBlock("bulleted_list_item", bulletMatch[1]);
       i++;
+      const children = collectChildren(parentIndent + 2);
+      if (children.length) block.bulleted_list_item.children = children;
+      blocks.push(block);
       continue;
     }
 
-    // Numbered list
-    const numMatch = trimmed.match(/^\d+\.\s+(.*)/);
+    // Numbered list (with nested children support)
+    const numMatch = stripped.match(/^\d+\.\s+(.*)/);
     if (numMatch) {
-      blocks.push(makeTextBlock("numbered_list_item", numMatch[1]));
+      const parentIndent = indent(line);
+      const block = makeTextBlock("numbered_list_item", numMatch[1]);
       i++;
+      const children = collectChildren(parentIndent + 2);
+      if (children.length) block.numbered_list_item.children = children;
+      blocks.push(block);
       continue;
     }
 
     // Quote
-    if (trimmed.startsWith("> ")) {
-      blocks.push(makeTextBlock("quote", trimmed.slice(2)));
+    if (stripped.startsWith("> ")) {
+      blocks.push(makeTextBlock("quote", stripped.slice(2)));
       i++;
       continue;
     }
 
     // Divider
-    if (/^(---|___|\*\*\*)$/.test(trimmed.trim())) {
+    if (/^(---|___|\*\*\*)$/.test(stripped)) {
       blocks.push({ object: "block", type: "divider", divider: {} });
       i++;
       continue;

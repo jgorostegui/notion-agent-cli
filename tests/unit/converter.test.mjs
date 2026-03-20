@@ -149,6 +149,44 @@ describe("markdownToBlocks", () => {
     assert.equal(blocks[1].type, "numbered_list_item");
   });
 
+  it("nests indented bullets as children", () => {
+    const md = "- parent\n  - child1\n  - child2";
+    const blocks = markdownToBlocks(md);
+    assert.equal(blocks.length, 1);
+    assert.equal(blocks[0].type, "bulleted_list_item");
+    const children = blocks[0].bulleted_list_item.children;
+    assert.equal(children.length, 2);
+    assert.equal(children[0].type, "bulleted_list_item");
+    assert.equal(children[1].type, "bulleted_list_item");
+  });
+
+  it("nests multiple levels of bullets", () => {
+    const md = "- a\n  - b\n    - c";
+    const blocks = markdownToBlocks(md);
+    assert.equal(blocks.length, 1);
+    const lvl1 = blocks[0].bulleted_list_item.children;
+    assert.equal(lvl1.length, 1);
+    const lvl2 = lvl1[0].bulleted_list_item.children;
+    assert.equal(lvl2.length, 1);
+  });
+
+  it("nests indented numbered items as children", () => {
+    const md = "1. parent\n  1. child";
+    const blocks = markdownToBlocks(md);
+    assert.equal(blocks.length, 1);
+    const children = blocks[0].numbered_list_item.children;
+    assert.equal(children.length, 1);
+    assert.equal(children[0].type, "numbered_list_item");
+  });
+
+  it("handles siblings after nested children", () => {
+    const md = "- a\n  - a1\n- b";
+    const blocks = markdownToBlocks(md);
+    assert.equal(blocks.length, 2);
+    assert.equal(blocks[0].bulleted_list_item.children.length, 1);
+    assert.equal(blocks[1].bulleted_list_item.children, undefined);
+  });
+
   it("parses quotes and dividers", () => {
     const blocks = markdownToBlocks("> quote\n---");
     assert.equal(blocks[0].type, "quote");
