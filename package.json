@@ -1,6 +1,6 @@
 {
   "name": "notion-agent-cli",
-  "version": "0.1.4",
+  "version": "0.1.3",
   "type": "module",
   "main": "scripts/actions.mjs",
   "scripts": {
@@ -24,6 +24,6 @@
     "fast-check": "^3.0.0"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   }
 }
