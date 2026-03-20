@@ -171,11 +171,10 @@ function textToRichText(text) {
   const src = String(text);
   const spans = [];
   // Regex for inline markdown tokens (order matters: bold before italic)
-  const inlineRe =
-    /(\[([^\]]+)\]\(([^)]+)\))|(`([^`]+)`)|(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(~~([^~]+)~~)/g;
+  const inlineRe = /(\[([^\]]+)\]\(([^)]+)\))|(`([^`]+)`)|(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(~~([^~]+)~~)/g;
   let last = 0;
-  let m;
-  while ((m = inlineRe.exec(src)) !== null) {
+  let m = inlineRe.exec(src);
+  while (m !== null) {
     // Plain text before this match
     if (m.index > last) {
       pushChunked(spans, src.slice(last, m.index), {});
@@ -197,6 +196,7 @@ function textToRichText(text) {
       pushChunked(spans, m[11], { strikethrough: true });
     }
     last = m.index + m[0].length;
+    m = inlineRe.exec(src);
   }
   // Trailing plain text
   if (last < src.length) {
@@ -208,7 +208,15 @@ function textToRichText(text) {
 /** Push rich_text spans, chunking at 2000 chars to respect Notion API limits */
 function pushChunked(spans, content, annotations, href) {
   const ann = Object.keys(annotations).length
-    ? { bold: false, italic: false, strikethrough: false, underline: false, code: false, color: "default", ...annotations }
+    ? {
+        bold: false,
+        italic: false,
+        strikethrough: false,
+        underline: false,
+        code: false,
+        color: "default",
+        ...annotations,
+      }
     : undefined;
   let remaining = content;
   while (remaining.length > 0) {

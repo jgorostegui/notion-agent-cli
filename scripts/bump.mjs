@@ -13,14 +13,11 @@
 
 import { execSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const files = [
-  join(root, "package.json"),
-  join(root, ".claude-plugin", "plugin.json"),
-];
+const files = [join(root, "package.json"), join(root, ".claude-plugin", "plugin.json")];
 
 const args = process.argv.slice(2);
 const noTag = args.includes("--no-tag");
@@ -43,7 +40,7 @@ const newVersion = bump(oldVersion, arg);
 for (const file of files) {
   const json = JSON.parse(await readFile(file, "utf-8"));
   json.version = newVersion;
-  await writeFile(file, JSON.stringify(json, null, 2) + "\n");
+  await writeFile(file, `${JSON.stringify(json, null, 2)}\n`);
 }
 
 const run = (cmd) => execSync(cmd, { cwd: root, stdio: "inherit" });
