@@ -556,7 +556,8 @@ function csvEscape(value) {
 export class NotionActions {
   constructor(token) {
     const t = token || process.env.NOTION_TOKEN;
-    if (!t) throw new Error("Notion token required. Set NOTION_TOKEN in .env or pass to constructor.");
+    if (!t)
+      throw new Error("Notion token required. Run /notion-agent-cli:setup or set NOTION_TOKEN in the environment.");
     this.client = new Client({ auth: t, notionVersion: "2025-09-03" });
     this.rate = new RateLimiter();
     this._snapshots = new Map();

@@ -35,61 +35,39 @@ Use `notion-agent-cli` if you want a smaller, task-oriented interface that:
 
 ## Installation
 
-### 1. Get a Notion token
-
-Create an integration at <https://www.notion.so/profile/integrations> and copy the token (starts with `ntn_`). Then share the pages and databases you want to access with the integration (page menu > Connections > add it).
-
-### 2. Install the plugin
-
-Pick one:
-
-**From the terminal:**
+### 1. Install the plugin
 
 ```bash
 claude plugin marketplace add jgorostegui/notion-agent-cli
 claude plugin install notion-agent-cli@notion-agent-cli-marketplace
 ```
 
-**From inside Claude Code:**
+Dependencies install automatically on first session start.
 
-```
-/plugin marketplace add jgorostegui/notion-agent-cli
-/plugin install notion-agent-cli@notion-agent-cli-marketplace
-/reload-plugins
+### 2. Set up authentication
+
+Create a Notion integration at <https://www.notion.so/profile/integrations> and copy the token (starts with `ntn_`). Share the pages and databases you want to access with the integration (page menu > Connections > add it).
+
+Then run `/notion-agent-cli:setup` inside Claude Code. It will ask for your token, validate it, and store it in `~/.claude/settings.json` where it persists across plugin updates.
+
+Alternatively, add the token to your settings manually:
+
+```json
+{
+  "env": {
+    "NOTION_TOKEN": "ntn_your_token_here"
+  }
+}
 ```
 
-**Manual (no plugin system):**
+### Manual install (no plugin system)
 
 ```bash
 git clone https://github.com/jgorostegui/notion-agent-cli.git
 cd notion-agent-cli
-node scripts/setup.mjs
+npm install
+cp .env.example .env   # edit with your token
 ```
-
-The setup script installs runtime dependencies if needed, prompts for your token, validates the connection, and saves auth in the plugin directory.
-
-### 3. Run setup
-
-One command:
-
-```bash
-node scripts/setup.mjs
-```
-
-That command will:
-
-- install runtime dependencies if they are missing
-- prompt for your Notion token
-- validate the connection against Notion
-- save the token to `.env` in the plugin directory
-
-Optional non-interactive mode:
-
-```bash
-printf '%s\n' "ntn_your_token_here" | node scripts/setup.mjs --with-token
-```
-
-Runtime auth priority is: `NOTION_TOKEN` from the environment first, then `.env` in the plugin directory.
 
 ## Quick Start
 
