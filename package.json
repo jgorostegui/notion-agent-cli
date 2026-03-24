@@ -1,6 +1,6 @@
 {
   "name": "notion-agent-cli",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "type": "module",
   "main": "scripts/actions.mjs",
   "scripts": {
@@ -16,7 +16,7 @@
     "bump": "node scripts/bump.mjs"
   },
   "dependencies": {
-    "@notionhq/client": "^5.9.0"
+    "@notionhq/client": "^5.14.0"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
