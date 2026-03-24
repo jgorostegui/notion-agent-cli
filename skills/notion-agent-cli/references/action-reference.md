@@ -34,6 +34,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs <action> [args...]
 | `unlockPage` | `pageId` | Unlock page |
 | `createDatabase` | `parentId, title, schema` | Create database with schema |
 | `addDatabaseEntry` | `dbId, values` | Add row with auto-typed properties |
+| `importTable` | `parentId, content, {title?}` | Create database from markdown table (infers column types) |
 
 ## STRUCTURAL Actions
 

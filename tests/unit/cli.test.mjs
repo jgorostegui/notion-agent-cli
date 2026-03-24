@@ -37,6 +37,7 @@ describe("ACTIONS registry", () => {
       "unlockPage",
       "createDatabase",
       "addDatabaseEntry",
+      "importTable",
       "moveBlocks",
       "movePage",
       "reorderBlocks",

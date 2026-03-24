@@ -130,9 +130,19 @@ function blocksToMarkdown(blocks, indent = 0) {
       case "child_database":
         lines.push(`${prefix}🗃️ **[Database: ${content.title || "Untitled"}]** (id: ${block.id})`);
         break;
-      case "table":
-        lines.push(`${prefix}[Table — ${content.table_width || "?"} columns]`);
+      case "table": {
+        const tableRows = (block.children || []).filter((r) => r.type === "table_row");
+        if (tableRows.length === 0) {
+          lines.push(`${prefix}[Empty table]`);
+          break;
+        }
+        for (let ri = 0; ri < tableRows.length; ri++) {
+          const cells = (tableRows[ri].table_row?.cells || []).map((cell) => richTextToMd(cell));
+          lines.push(`${prefix}| ${cells.join(" | ")} |`);
+          if (ri === 0) lines.push(`${prefix}| ${cells.map(() => "---").join(" | ")} |`);
+        }
         break;
+      }
       case "table_row": {
         const cells = (content.cells || []).map((cell) => richTextToMd(cell));
         lines.push(`${prefix}| ${cells.join(" | ")} |`);
@@ -154,7 +164,7 @@ function blocksToMarkdown(blocks, indent = 0) {
         lines.push(`${prefix}[${type}]`);
     }
 
-    if (block.children?.length) {
+    if (block.children?.length && type !== "table") {
       lines.push(blocksToMarkdown(block.children, indent + 1));
     }
     lines.push(""); // blank line between blocks
@@ -370,6 +380,51 @@ function markdownToBlocks(md) {
       continue;
     }
 
+    // Table: detect pipe-delimited rows with separator
+    if (splitTableRow(stripped) && i + 1 < lines.length && isTableSeparator(lines[i + 1].trim())) {
+      const headerCells = splitTableRow(stripped);
+      const numCols = headerCells.length;
+      const tableChildren = [];
+
+      // Header row
+      tableChildren.push({
+        object: "block",
+        type: "table_row",
+        table_row: { cells: headerCells.map((c) => textToRichText(c)) },
+      });
+
+      i += 2; // skip header + separator
+
+      // Data rows
+      while (i < lines.length) {
+        const rowCells = splitTableRow(lines[i].trim());
+        if (!rowCells) break;
+        // Pad/truncate to numCols
+        const padded = [];
+        for (let c = 0; c < numCols; c++) {
+          padded.push(rowCells[c] !== undefined ? rowCells[c] : "");
+        }
+        tableChildren.push({
+          object: "block",
+          type: "table_row",
+          table_row: { cells: padded.map((c) => textToRichText(c)) },
+        });
+        i++;
+      }
+
+      blocks.push({
+        object: "block",
+        type: "table",
+        table: {
+          table_width: numCols,
+          has_column_header: true,
+          has_row_header: false,
+          children: tableChildren,
+        },
+      });
+      continue;
+    }
+
     // Default: paragraph
     blocks.push(makeTextBlock("paragraph", trimmed));
     i++;
@@ -549,6 +604,122 @@ function csvEscape(value) {
   return `"${str.replace(/"/g, '""').replace(/[\r\n]+/g, " ")}"`;
 }
 
+// ── Table Parsing Helpers ──────────────────────────────────────────────────────
+
+/** Split a pipe-delimited markdown table row into trimmed cell strings. Returns null if not a table row. */
+function splitTableRow(line) {
+  const trimmed = line?.trim();
+  if (!trimmed || !trimmed.startsWith("|") || !trimmed.endsWith("|")) return null;
+  // Split on |, drop first and last empty segments
+  const parts = trimmed.split("|");
+  return parts.slice(1, -1).map((c) => c.trim());
+}
+
+/** Returns true if the line is a markdown table separator row (e.g. | --- | :---: | ---: |) */
+function isTableSeparator(line) {
+  const cells = splitTableRow(line);
+  if (!cells || cells.length === 0) return false;
+  return cells.every((c) => /^:?-+:?$/.test(c));
+}
+
+/** Parse a markdown table string into headers and rows. Returns null if no valid table found.
+ *  Normalizes blank/duplicate headers. Pads short rows, truncates long rows. */
+function parseMarkdownTableData(md) {
+  if (!md?.trim()) return null;
+  const lines = md.trim().split("\n");
+
+  // Find first table row
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (splitTableRow(lines[i])) {
+      start = i;
+      break;
+    }
+  }
+  if (start === -1) return null;
+
+  // Need at least header + separator
+  if (start + 1 >= lines.length) return null;
+  if (!isTableSeparator(lines[start + 1])) return null;
+
+  const rawHeaders = splitTableRow(lines[start]);
+  const colCount = rawHeaders.length;
+
+  // Header normalization: blank → Column N, duplicates → Name 2, Name 3
+  const seen = new Map();
+  const headers = rawHeaders.map((h, i) => {
+    let name = h || `Column ${i + 1}`;
+    if (seen.has(name)) {
+      const count = seen.get(name) + 1;
+      seen.set(name, count);
+      name = `${name} ${count}`;
+    } else {
+      seen.set(name, 1);
+    }
+    return name;
+  });
+
+  // Collect data rows (skip separator at start+1)
+  const rows = [];
+  for (let i = start + 2; i < lines.length; i++) {
+    const cells = splitTableRow(lines[i]);
+    if (!cells) break; // end of table
+    // Pad/truncate to colCount
+    const row = [];
+    for (let c = 0; c < colCount; c++) {
+      row.push(cells[c] !== undefined ? cells[c] : "");
+    }
+    rows.push(row);
+  }
+
+  return { headers, rows };
+}
+
+/** Infer Notion property types from column data. Best-effort heuristics.
+ *  Returns Record<string, string> mapping header name to property type. */
+function inferColumnTypes(headers, rows) {
+  const types = {};
+  for (let col = 0; col < headers.length; col++) {
+    const header = headers[col];
+
+    // First column is always title
+    if (col === 0) {
+      types[header] = "title";
+      continue;
+    }
+
+    // Collect non-empty values
+    const values = rows.map((r) => r[col]).filter((v) => v !== "" && v !== undefined && v !== null);
+
+    if (values.length === 0) {
+      types[header] = "rich_text";
+      continue;
+    }
+
+    // Test in priority order
+    if (values.every((v) => /^https?:\/\/.+/.test(v))) {
+      types[header] = "url";
+    } else if (values.every((v) => /^\d{4}-\d{2}-\d{2}/.test(v))) {
+      types[header] = "date";
+    } else if (values.every((v) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v))) {
+      types[header] = "email";
+    } else if (values.every((v) => /^(true|false|yes|no)$/i.test(v))) {
+      types[header] = "checkbox";
+    } else if (values.every((v) => /^-?\d+(\.\d+)?$/.test(v) && !/^0\d/.test(v))) {
+      types[header] = "number";
+    } else {
+      // Check for select: at least one repeat, unique count <= 10
+      const unique = new Set(values);
+      if (unique.size <= 10 && unique.size < values.length) {
+        types[header] = "select";
+      } else {
+        types[header] = "rich_text";
+      }
+    }
+  }
+  return types;
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // NotionActions Class
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -611,14 +782,22 @@ export class NotionActions {
     return recurse(normalizeId(blockId));
   }
 
-  /** Resolve database ID → data source ID (cached). Required for API 2025-09-03. */
+  /** Resolve database ID → data source ID (cached). Required for API 2025-09-03.
+   *  Also accepts a data source ID directly (returns it as-is after verification). */
   async _resolveDataSourceId(dbId) {
     const nid = normalizeId(dbId);
     if (this._dsCache.has(nid)) return this._dsCache.get(nid);
-    const db = await this._call(() => this.client.databases.retrieve({ database_id: nid }));
-    const dsId = db.data_sources?.[0]?.data_source_id || db.data_sources?.[0]?.id || nid;
-    this._dsCache.set(nid, dsId);
-    return dsId;
+    try {
+      const db = await this._call(() => this.client.databases.retrieve({ database_id: nid }));
+      const dsId = db.data_sources?.[0]?.data_source_id || db.data_sources?.[0]?.id || nid;
+      this._dsCache.set(nid, dsId);
+      return dsId;
+    } catch {
+      // ID might be a data source ID — verify it and use directly
+      await this._call(() => this.client.dataSources.retrieve({ data_source_id: nid }));
+      this._dsCache.set(nid, nid);
+      return nid;
+    }
   }
 
   /** Paginate dataSources.query per API 2025-09-03 */
@@ -1000,7 +1179,7 @@ export class NotionActions {
       const nid = normalizeId(parentId);
       const db = await this._call(() =>
         this.client.databases.create({
-          parent: { page_id: nid },
+          parent: { type: "page_id", page_id: nid },
           title: [{ text: { content: title || "" } }],
           initial_data_source: { properties: schema },
         }),
@@ -1016,10 +1195,10 @@ export class NotionActions {
     try {
       const nid = normalizeId(dbId);
       const dsId = await this._resolveDataSourceId(nid);
-      const db = await this._call(() => this.client.databases.retrieve({ database_id: nid }));
+      const ds = await this._call(() => this.client.dataSources.retrieve({ data_source_id: dsId }));
       const properties = {};
       for (const [name, value] of Object.entries(values)) {
-        const propSchema = db.properties[name];
+        const propSchema = ds.properties?.[name];
         if (!propSchema) continue;
         properties[name] = buildPropertyValue(propSchema.type, value);
       }
@@ -1033,6 +1212,60 @@ export class NotionActions {
     } catch (e) {
       return { success: false, error: String(e) };
     }
+  }
+
+  /** Create a Notion database from a markdown table with inferred column types.
+   *  Resolves data source once and inserts rows directly (no per-row schema fetch). */
+  async importTable(parentId, content, { title } = {}) {
+    const parsed = parseMarkdownTableData(content);
+    if (!parsed) return { success: false, error: "No valid markdown table found in content" };
+
+    const types = inferColumnTypes(parsed.headers, parsed.rows);
+
+    // Build schema from inferred types
+    const schema = {};
+    for (const header of parsed.headers) {
+      const type = types[header];
+      if (type === "title") {
+        schema[header] = { title: {} };
+      } else if (type === "select") {
+        const colIdx = parsed.headers.indexOf(header);
+        const unique = [...new Set(parsed.rows.map((r) => r[colIdx]).filter(Boolean))];
+        schema[header] = { select: { options: unique.map((v) => ({ name: v })) } };
+      } else {
+        schema[header] = { [type]: {} };
+      }
+    }
+
+    // Create database
+    const dbResult = await this.createDatabase(normalizeId(parentId), title || "Imported Table", schema);
+    if (!dbResult.success) return dbResult;
+
+    // Resolve data source once
+    const dsId = await this._resolveDataSourceId(dbResult.databaseId);
+
+    // Insert rows directly via pages.create
+    let created = 0;
+    const errors = [];
+    for (const row of parsed.rows) {
+      const properties = {};
+      parsed.headers.forEach((h, idx) => {
+        if (!row[idx]) return;
+        const t = types[h];
+        let val = row[idx];
+        if (t === "number") val = Number(val);
+        else if (t === "checkbox") val = /^(true|yes)$/i.test(val);
+        properties[h] = buildPropertyValue(t, val);
+      });
+      try {
+        await this._call(() => this.client.pages.create({ parent: { data_source_id: dsId }, properties }));
+        created++;
+      } catch (e) {
+        errors.push({ row: Object.fromEntries(parsed.headers.map((h, idx) => [h, row[idx]])), error: String(e) });
+      }
+    }
+
+    return { success: true, databaseId: dbResult.databaseId, url: dbResult.url, entriesCreated: created, errors };
   }
 
   // ── STRUCTURAL Actions ──────────────────────────────────────────────────
@@ -1707,6 +1940,7 @@ const ACTIONS = {
   unlockPage: { args: ["pageId"], options: [] },
   createDatabase: { args: ["parentId", "title", "schema"], options: [] },
   addDatabaseEntry: { args: ["dbId", "values"], options: [] },
+  importTable: { args: ["parentId", "content"], options: ["title"] },
   // STRUCTURAL
   moveBlocks: { args: ["sourcePageId", "targetPageId", "blockIds"], options: ["position"] },
   movePage: { args: ["pageId", "newParentId"], options: ["parentType"] },
@@ -1766,6 +2000,8 @@ const ACTION_ALIASES = {
   split: "splitPage",
   archive: "batchArchive",
   duplicate: "deepCopy",
+  tableToDatabase: "importTable",
+  createDatabaseFromTable: "importTable",
 };
 
 /** Resolve action name with alias fallback */
@@ -1897,6 +2133,7 @@ function printHelp() {
     unlockPage: "Unlock page",
     createDatabase: "Create database with schema",
     addDatabaseEntry: "Add row with auto-typed properties",
+    importTable: "Create database from markdown table (infers types)",
     moveBlocks: "Move blocks between pages with rollback",
     movePage: "Move page (deep copy + archive)",
     reorderBlocks: "Reorder blocks by ID array",
@@ -2147,15 +2384,19 @@ export {
   extractDbTitle,
   extractPropertyValue,
   extractTitle,
+  inferColumnTypes,
+  isTableSeparator,
   makeCodeBlock,
   makeHeadingBlock,
   makeTextBlock,
   markdownToBlocks,
   normalizeId,
+  parseMarkdownTableData,
   RateLimiter,
   recreateBlock,
   richTextToMd,
   safeName,
+  splitTableRow,
   textToRichText,
   toCamelCase,
 };

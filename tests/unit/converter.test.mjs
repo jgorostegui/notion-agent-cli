@@ -203,6 +203,63 @@ describe("markdownToBlocks", () => {
     const blocks = markdownToBlocks("just text");
     assert.equal(blocks[0].type, "paragraph");
   });
+
+  it("parses simple markdown table into table block", () => {
+    const blocks = markdownToBlocks("| A | B |\n| --- | --- |\n| 1 | 2 |");
+    assert.equal(blocks.length, 1);
+    assert.equal(blocks[0].type, "table");
+    assert.equal(blocks[0].table.table_width, 2);
+    assert.equal(blocks[0].table.has_column_header, true);
+    assert.equal(blocks[0].table.children.length, 2); // header + 1 data row
+    assert.equal(blocks[0].table.children[0].type, "table_row");
+  });
+
+  it("parses header-only table (no data rows)", () => {
+    const blocks = markdownToBlocks("| A | B |\n| --- | --- |");
+    assert.equal(blocks.length, 1);
+    assert.equal(blocks[0].type, "table");
+    assert.equal(blocks[0].table.children.length, 1); // header only
+  });
+
+  it("accepts alignment separators", () => {
+    const blocks = markdownToBlocks("| Left | Center | Right |\n| :--- | :---: | ---: |\n| a | b | c |");
+    assert.equal(blocks.length, 1);
+    assert.equal(blocks[0].type, "table");
+    assert.equal(blocks[0].table.table_width, 3);
+  });
+
+  it("preserves inline markdown in table cells", () => {
+    const blocks = markdownToBlocks("| **bold** | *italic* |\n| --- | --- |\n| `code` | text |");
+    assert.equal(blocks[0].type, "table");
+    // Header row, first cell should have bold annotation
+    const headerCells = blocks[0].table.children[0].table_row.cells;
+    assert.equal(headerCells[0][0].text.content, "bold");
+    assert.equal(headerCells[0][0].annotations.bold, true);
+  });
+
+  it("table followed by other content produces multiple blocks", () => {
+    const blocks = markdownToBlocks("| A | B |\n| --- | --- |\n| 1 | 2 |\n\nSome paragraph");
+    assert.equal(blocks.length, 2);
+    assert.equal(blocks[0].type, "table");
+    assert.equal(blocks[1].type, "paragraph");
+  });
+
+  it("lines without separator row are NOT parsed as table", () => {
+    const blocks = markdownToBlocks("| A | B |\n| 1 | 2 |");
+    // Both should be paragraphs, not a table
+    assert.ok(blocks.every((b) => b.type === "paragraph"));
+  });
+
+  it("single pipe line is NOT misdetected as table", () => {
+    const blocks = markdownToBlocks("| not a table");
+    assert.equal(blocks[0].type, "paragraph");
+  });
+
+  it("pads inconsistent row widths to header count", () => {
+    const blocks = markdownToBlocks("| A | B | C |\n| --- | --- | --- |\n| 1 |");
+    const dataRow = blocks[0].table.children[1];
+    assert.equal(dataRow.table_row.cells.length, 3); // padded to 3
+  });
 });
 
 describe("blocksToMarkdown", () => {
@@ -236,6 +293,75 @@ describe("blocksToMarkdown", () => {
     ];
     const md = blocksToMarkdown(blocks);
     assert.ok(md.includes("  child"));
+  });
+
+  it("renders table block with header as proper markdown pipe table", () => {
+    const blocks = [
+      {
+        type: "table",
+        table: { table_width: 2, has_column_header: true },
+        children: [
+          {
+            type: "table_row",
+            table_row: {
+              cells: [[{ plain_text: "Name", annotations: {} }], [{ plain_text: "Score", annotations: {} }]],
+            },
+          },
+          {
+            type: "table_row",
+            table_row: { cells: [[{ plain_text: "Alice", annotations: {} }], [{ plain_text: "95", annotations: {} }]] },
+          },
+        ],
+      },
+    ];
+    const md = blocksToMarkdown(blocks);
+    assert.ok(md.includes("| Name | Score |"), "should contain header row");
+    assert.ok(md.includes("| --- | --- |"), "should contain separator row");
+    assert.ok(md.includes("| Alice | 95 |"), "should contain data row");
+  });
+
+  it("renders table without column header (separator still present)", () => {
+    const blocks = [
+      {
+        type: "table",
+        table: { table_width: 2, has_column_header: false },
+        children: [
+          {
+            type: "table_row",
+            table_row: { cells: [[{ plain_text: "A", annotations: {} }], [{ plain_text: "B", annotations: {} }]] },
+          },
+          {
+            type: "table_row",
+            table_row: { cells: [[{ plain_text: "C", annotations: {} }], [{ plain_text: "D", annotations: {} }]] },
+          },
+        ],
+      },
+    ];
+    const md = blocksToMarkdown(blocks);
+    assert.ok(md.includes("| --- | --- |"), "markdown requires separator even without column header");
+  });
+
+  it("renders empty table as placeholder", () => {
+    const blocks = [{ type: "table", table: { table_width: 2 }, children: [] }];
+    const md = blocksToMarkdown(blocks);
+    assert.ok(md.includes("[Empty table]"));
+  });
+
+  it("does not double-render table_row children", () => {
+    const blocks = [
+      {
+        type: "table",
+        table: { table_width: 1, has_column_header: true },
+        children: [
+          { type: "table_row", table_row: { cells: [[{ plain_text: "Header", annotations: {} }]] } },
+          { type: "table_row", table_row: { cells: [[{ plain_text: "Data", annotations: {} }]] } },
+        ],
+      },
+    ];
+    const md = blocksToMarkdown(blocks);
+    // Count occurrences of "| Header |" — should be exactly 1
+    const matches = md.match(/\| Header \|/g) || [];
+    assert.equal(matches.length, 1, "Header should appear exactly once (no double-rendering)");
   });
 });
 

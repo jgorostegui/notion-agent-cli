@@ -23,6 +23,8 @@ const INTENDED_WORKFLOWS = {
   6: ["createPage", "mergePages"],
   7: ["batchSetProperties"],
   8: ["copyPageWith"],
+  9: ["createPage"],
+  10: ["importTable"],
 };
 
 // Actions that count as "useful" (actually doing work, not discovery)
@@ -42,6 +44,9 @@ const USEFUL_ACTIONS = new Set([
   "search",
   "workspaceMap",
   "getDatabase",
+  "importTable",
+  "addDatabaseEntry",
+  "createDatabase",
   "moveBlocks",
   "splitPage",
   "applyTemplate",

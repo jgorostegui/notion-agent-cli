@@ -6,9 +6,13 @@ import {
   extractDbTitle,
   extractPropertyValue,
   extractTitle,
+  inferColumnTypes,
+  isTableSeparator,
   NotionActions,
   normalizeId,
+  parseMarkdownTableData,
   safeName,
+  splitTableRow,
 } from "../../scripts/actions.mjs";
 
 describe("extractTitle", () => {
@@ -147,6 +151,252 @@ describe("csvEscape", () => {
 
   it("handles empty string", () => {
     assert.equal(csvEscape(""), '""');
+  });
+});
+
+// ── Table Parsing Helpers ─────────────────────────────────────────────────────
+
+describe("splitTableRow", () => {
+  it("splits a pipe-delimited row into trimmed cells", () => {
+    assert.deepEqual(splitTableRow("| A | B | C |"), ["A", "B", "C"]);
+  });
+
+  it("returns null for lines not starting with pipe", () => {
+    assert.equal(splitTableRow("no pipes here"), null);
+  });
+
+  it("returns null for lines not ending with pipe", () => {
+    assert.equal(splitTableRow("| A | B"), null);
+  });
+
+  it("handles single cell", () => {
+    assert.deepEqual(splitTableRow("| solo |"), ["solo"]);
+  });
+
+  it("handles empty cells", () => {
+    assert.deepEqual(splitTableRow("|  | val |  |"), ["", "val", ""]);
+  });
+
+  it("trims whitespace from cells", () => {
+    assert.deepEqual(splitTableRow("|  hello  |  world  |"), ["hello", "world"]);
+  });
+});
+
+describe("isTableSeparator", () => {
+  it("matches plain separator", () => {
+    assert.equal(isTableSeparator("| --- | --- |"), true);
+  });
+
+  it("matches left-aligned", () => {
+    assert.equal(isTableSeparator("| :--- | --- |"), true);
+  });
+
+  it("matches right-aligned", () => {
+    assert.equal(isTableSeparator("| ---: | --- |"), true);
+  });
+
+  it("matches center-aligned", () => {
+    assert.equal(isTableSeparator("| :---: | :---: |"), true);
+  });
+
+  it("matches minimal dashes", () => {
+    assert.equal(isTableSeparator("| - | - |"), true);
+  });
+
+  it("rejects non-separator rows", () => {
+    assert.equal(isTableSeparator("| A | B |"), false);
+  });
+
+  it("rejects non-pipe lines", () => {
+    assert.equal(isTableSeparator("---"), false);
+  });
+});
+
+describe("parseMarkdownTableData", () => {
+  it("extracts headers and rows from a valid table", () => {
+    const md = "| Name | Score |\n| --- | --- |\n| Alice | 95 |\n| Bob | 82 |";
+    const result = parseMarkdownTableData(md);
+    assert.deepEqual(result.headers, ["Name", "Score"]);
+    assert.deepEqual(result.rows, [
+      ["Alice", "95"],
+      ["Bob", "82"],
+    ]);
+  });
+
+  it("returns null for non-table content", () => {
+    assert.equal(parseMarkdownTableData("just some text"), null);
+    assert.equal(parseMarkdownTableData(""), null);
+  });
+
+  it("returns null when separator row is missing", () => {
+    assert.equal(parseMarkdownTableData("| A | B |\n| 1 | 2 |"), null);
+  });
+
+  it("handles empty cells", () => {
+    const md = "| A | B |\n| --- | --- |\n|  | val |";
+    const result = parseMarkdownTableData(md);
+    assert.deepEqual(result.rows, [["", "val"]]);
+  });
+
+  it("trims whitespace from cells", () => {
+    const md = "|  Name  |  Score  |\n| --- | --- |\n|  Alice  |  95  |";
+    const result = parseMarkdownTableData(md);
+    assert.deepEqual(result.headers, ["Name", "Score"]);
+    assert.deepEqual(result.rows, [["Alice", "95"]]);
+  });
+
+  it("normalizes blank headers", () => {
+    const md = "|  | Name |  |\n| --- | --- | --- |\n| a | b | c |";
+    const result = parseMarkdownTableData(md);
+    assert.deepEqual(result.headers, ["Column 1", "Name", "Column 3"]);
+  });
+
+  it("de-duplicates repeated headers", () => {
+    const md = "| Status | Status | Status |\n| --- | --- | --- |\n| a | b | c |";
+    const result = parseMarkdownTableData(md);
+    assert.deepEqual(result.headers, ["Status", "Status 2", "Status 3"]);
+  });
+
+  it("pads short rows and truncates long rows to header count", () => {
+    const md = "| A | B | C |\n| --- | --- | --- |\n| 1 |\n| 1 | 2 | 3 | 4 |";
+    const result = parseMarkdownTableData(md);
+    assert.deepEqual(result.rows[0], ["1", "", ""]);
+    assert.deepEqual(result.rows[1], ["1", "2", "3"]);
+  });
+
+  it("handles header-only table (no data rows)", () => {
+    const md = "| A | B |\n| --- | --- |";
+    const result = parseMarkdownTableData(md);
+    assert.deepEqual(result.headers, ["A", "B"]);
+    assert.deepEqual(result.rows, []);
+  });
+
+  it("accepts alignment separators", () => {
+    const md = "| Name | Score |\n| :--- | ---: |\n| Alice | 95 |";
+    const result = parseMarkdownTableData(md);
+    assert.deepEqual(result.headers, ["Name", "Score"]);
+  });
+});
+
+describe("inferColumnTypes", () => {
+  it("assigns title to first column", () => {
+    const types = inferColumnTypes(["Name", "Other"], [["Alice", "x"]]);
+    assert.equal(types.Name, "title");
+  });
+
+  it("infers number for all-numeric column", () => {
+    const types = inferColumnTypes(
+      ["Name", "Score"],
+      [
+        ["A", "95"],
+        ["B", "82"],
+        ["C", "-3.5"],
+      ],
+    );
+    assert.equal(types.Score, "number");
+  });
+
+  it("keeps leading-zero values as rich_text", () => {
+    const types = inferColumnTypes(
+      ["Name", "Code"],
+      [
+        ["A", "00123"],
+        ["B", "00456"],
+      ],
+    );
+    assert.equal(types.Code, "rich_text");
+  });
+
+  it("infers url for URL values", () => {
+    const types = inferColumnTypes(
+      ["Name", "Link"],
+      [
+        ["A", "https://example.com"],
+        ["B", "http://test.org"],
+      ],
+    );
+    assert.equal(types.Link, "url");
+  });
+
+  it("infers date for date values", () => {
+    const types = inferColumnTypes(
+      ["Name", "Date"],
+      [
+        ["A", "2024-01-15"],
+        ["B", "2025-12-31"],
+      ],
+    );
+    assert.equal(types.Date, "date");
+  });
+
+  it("infers checkbox for boolean-like values", () => {
+    const types = inferColumnTypes(
+      ["Name", "Done"],
+      [
+        ["A", "true"],
+        ["B", "false"],
+        ["C", "yes"],
+      ],
+    );
+    assert.equal(types.Done, "checkbox");
+  });
+
+  it("infers email for email values", () => {
+    const types = inferColumnTypes(
+      ["Name", "Email"],
+      [
+        ["A", "a@b.com"],
+        ["B", "x@y.org"],
+      ],
+    );
+    assert.equal(types.Email, "email");
+  });
+
+  it("infers select for small categorical columns with repeats", () => {
+    const types = inferColumnTypes(
+      ["Name", "Status"],
+      [
+        ["A", "Done"],
+        ["B", "In Progress"],
+        ["C", "Done"],
+      ],
+    );
+    assert.equal(types.Status, "select");
+  });
+
+  it("defaults to rich_text for mixed values", () => {
+    const types = inferColumnTypes(
+      ["Name", "Notes"],
+      [
+        ["A", "hello"],
+        ["B", "42"],
+        ["C", "https://x.com"],
+      ],
+    );
+    assert.equal(types.Notes, "rich_text");
+  });
+
+  it("defaults to rich_text for empty column", () => {
+    const types = inferColumnTypes(
+      ["Name", "Empty"],
+      [
+        ["A", ""],
+        ["B", ""],
+      ],
+    );
+    assert.equal(types.Empty, "rich_text");
+  });
+
+  it("ignores blank cells when inferring", () => {
+    const types = inferColumnTypes(
+      ["Name", "Score"],
+      [
+        ["A", "95"],
+        ["B", ""],
+        ["C", "82"],
+      ],
+    );
+    assert.equal(types.Score, "number");
   });
 });
 

@@ -41,6 +41,7 @@ Run actions directly. Do NOT read the script source or run `--help` unless the d
 - **Merge pages** → `mergePages '["id1","id2"]' <target>`
 - **Batch update** → `batchSetProperties '["id1","id2"]' '{"Status":"Done"}'`
 - **Full copy with subpages** → `deepCopy <src> <parent>`
+- **Markdown table → database** → `importTable <parentId> "| md | table |" --title "Name"` (infers column types)
 
 ## Key Behaviors
 

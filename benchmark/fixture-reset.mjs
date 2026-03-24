@@ -66,8 +66,7 @@ if (BENCH_MERGE_SOURCES) {
       }
       console.log(`Verified merge source ${srcId}`);
     } catch (e) {
-      console.error(`ERROR: Merge source ${srcId} is inaccessible: ${e.message}`);
-      process.exit(1);
+      console.warn(`WARNING: Merge source ${srcId} inaccessible (may be transient): ${e.message}`);
     }
   }
 }

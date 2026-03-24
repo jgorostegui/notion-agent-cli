@@ -204,6 +204,40 @@ def _behavior_analysis(results_dir: Path) -> None:
         typer.echo(f"  ⚠ behavior analysis failed: {e}", err=True)
 
 
+VALIDATE_SCRIPT = SCRIPT_DIR / "validate-session.mjs"
+
+
+def _validate_session(marker: str, scenario: int) -> dict:
+    """Run validate-session.mjs and return the result dict."""
+    if not VALIDATE_SCRIPT.exists():
+        return {"valid": None, "reason": "validator not found"}
+    try:
+        out = subprocess.run(
+            ["node", str(VALIDATE_SCRIPT), marker, str(scenario)],
+            capture_output=True, text=True, timeout=60,
+        )
+        return json.loads(out.stdout.strip())
+    except json.JSONDecodeError:
+        return {"valid": False, "reason": f"validator output not JSON: {out.stdout[:200]}"}
+    except subprocess.TimeoutExpired:
+        return {"valid": False, "reason": "validator timed out"}
+    except Exception as e:
+        return {"valid": False, "reason": str(e)}
+
+
+def _save_validation(label: str, result: dict, results_dir: Path) -> None:
+    """Append a single validation result to validation.json."""
+    vfile = results_dir / "validation.json"
+    existing = {}
+    if vfile.exists():
+        try:
+            existing = json.loads(vfile.read_text())
+        except Exception:
+            pass
+    existing[label] = result
+    vfile.write_text(json.dumps(existing, indent=2))
+
+
 def _artifact_cleanup(run_id: str) -> None:
     cleanup_script = SCRIPT_DIR / "cleanup-artifacts.mjs"
     if not cleanup_script.exists():
@@ -231,6 +265,17 @@ def _load_skill_body() -> str:
         if end != -1:
             text = text[end + 3:].strip()
     return text.replace("${CLAUDE_PLUGIN_ROOT}", str(PROJECT_DIR))
+
+
+_bench_table_cache: str | None = None
+
+
+def _load_bench_table() -> str:
+    """Load the benchmark table fixture for S9/S10."""
+    global _bench_table_cache
+    if _bench_table_cache is None:
+        _bench_table_cache = (PROJECT_DIR / "benchmark" / "fixtures" / "bench-table.md").read_text().strip()
+    return _bench_table_cache
 
 
 def _prompt_for(scenario: int, marker: str, prefix: str) -> str:
@@ -276,6 +321,15 @@ def _prompt_for(scenario: int, marker: str, prefix: str) -> str:
             f'new section at the end with heading "Benchmark Notes" and a paragraph: '
             f'"This copy was created by benchmark run {marker} with additional notes '
             f'appended."'),
+        9: (f'Create a new Notion page titled "Table [{marker}]" under parent {PP}. '
+            f'The page should contain the following data as a simple Notion table '
+            f'(not a database, a table block). Preserve all rows and columns exactly.\n\n'
+            f'{_load_bench_table()}'),
+        10: (f'Create a new Notion database titled "DB [{marker}]" under parent {PP} '
+             f'using the data below. Each row becomes a database entry. Infer appropriate '
+             f'column types from the data (e.g., Year should be a number, Genre should be '
+             f'a select, Rating should be a number). Preserve all 30 rows.\n\n'
+             f'{_load_bench_table()}'),
     }
 
     required = {
@@ -290,7 +344,7 @@ def _prompt_for(scenario: int, marker: str, prefix: str) -> str:
             typer.echo(f"Error: {name} required for scenario {scenario}", err=True)
             raise typer.Exit(1)
     if scenario not in prompts:
-        typer.echo(f"Error: unknown scenario {scenario} (valid: 1-8)", err=True)
+        typer.echo(f"Error: unknown scenario {scenario} (valid: 1-10)", err=True)
         raise typer.Exit(1)
 
     return routing + prompts[scenario]
@@ -428,8 +482,9 @@ def _run_session(
 def _run_plugin(
     prefix: str, label: str, *, scenarios: list[int],
     iterations: int, model: str, run_id: str, results_dir: Path,
-) -> None:
-    """Run all sessions for a plugin (na or mcp). Always sequential."""
+) -> list[SessionResult]:
+    """Run all sessions for a plugin (na or mcp). Always sequential.
+    Returns list of SessionResult for validation."""
     parts = [f"S{','.join(str(s) for s in scenarios)}", f"n={iterations}"]
     if model:
         parts.append(f"model={model}")
@@ -438,11 +493,22 @@ def _run_plugin(
 
     tasks = [(prefix, s, i) for s in scenarios for i in range(1, iterations + 1)]
     common = dict(run_id=run_id, results_dir=results_dir, model=model, iterations=iterations)
+    results = []
 
     for prefix_, scenario, iteration in tasks:
         _fixture_reset()
         result = _run_session(prefix_, scenario, iteration, **common)
-        typer.echo(result.format_line(iterations))
+        line = result.format_line(iterations)
+        # Validate immediately after each session
+        if not result.skipped:
+            v = _validate_session(result.marker, result.scenario)
+            _save_validation(result.label, v, results_dir)
+            status = "✓" if v.get("valid") else "✗"
+            line += f"  {status}"
+        typer.echo(line)
+        results.append(result)
+
+    return results
 
 
 # ── Parse results (native Python) ───────────────────────────────────────────
@@ -608,71 +674,108 @@ def _prepare_run(
     return scens, rid, results_dir
 
 
+# ── Shared options for all run commands ────────────────────────────────────────
+
+_common_options = {
+    "scenarios":  typer.Option("", "-s", "--scenarios", help='Scenarios: "1-10", "1,3,5"'),
+    "iterations": typer.Option(3, "-n", "--iterations", help="Iterations per scenario"),
+    "model":      typer.Option("", "-m", "--model", help="Claude model (e.g. claude-sonnet-4-6)"),
+    "run_id":     typer.Option([], "-r", "--run-id", help="Custom run ID"),
+    "clean":      typer.Option(False, help="Delete existing results first"),
+    "cleanup":    typer.Option(True, help="Archive Notion artifacts after validation (--no-cleanup to keep)"),
+}
+
+
+def _run_benchmark(
+    *, modes: list[str], scenarios: str, iterations: int,
+    model: str, run_id: list[str], clean: bool, cleanup: bool,
+) -> None:
+    """Core benchmark pipeline. Modes: ["nac"], ["mcp"], or ["nac", "mcp"]."""
+    labels = {"nac": "notion-agent-cli", "mcp": "MCP"}
+    parsed_scenarios, rid, results_dir = _prepare_run(scenarios, iterations, model, run_id, clean)
+    _reset_bench_homes()
+    _write_env_json(
+        results_dir, scenarios=parsed_scenarios,
+        iterations=iterations, model=model, run_id=rid,
+    )
+
+    for mode in modes:
+        _run_plugin(
+            mode, labels[mode], scenarios=parsed_scenarios,
+            iterations=iterations, model=model, run_id=rid, results_dir=results_dir,
+        )
+        if cleanup and mode != modes[-1]:
+            _artifact_cleanup(rid)
+
+    # Print validation summary
+    vfile = results_dir / "validation.json"
+    if vfile.exists():
+        all_v = json.loads(vfile.read_text())
+        passed = sum(1 for v in all_v.values() if v.get("valid") is True)
+        failed = sum(1 for v in all_v.values() if v.get("valid") is False)
+        typer.echo(f"\nValidation: {passed} passed, {failed} failed")
+
+    _contamination_summary(results_dir)
+    if "nac" in modes:
+        _behavior_analysis(results_dir)
+
+    if len(modes) > 1:
+        groups = {m: _load_summaries(results_dir, m) for m in modes}
+        _print_comparison_table(groups)
+
+    if cleanup:
+        _artifact_cleanup(rid)
+    else:
+        typer.echo("  Skipping artifact cleanup (--no-cleanup)")
+    typer.echo(f"\nDone. Results: {results_dir}")
+
+
 @app.command()
 def actions(
-    scenarios: str = typer.Option("", "-s", "--scenarios", help='Scenarios: "1-8", "1,3,5"'),
-    iterations: int = typer.Option(3, "-n", "--iterations", help="Iterations per scenario"),
-    model: str = typer.Option("", "-m", "--model", help="Claude model (e.g. claude-sonnet-4-6)"),
-    run_id: list[str] = typer.Option([], "-r", "--run-id", help="Custom run ID"),
-    clean: bool = typer.Option(False, help="Delete existing results first"),
+    scenarios: str = _common_options["scenarios"],
+    iterations: int = _common_options["iterations"],
+    model: str = _common_options["model"],
+    run_id: list[str] = _common_options["run_id"],
+    clean: bool = _common_options["clean"],
+    cleanup: bool = _common_options["cleanup"],
 ) -> None:
     """Run notion-agent-cli sessions only."""
-    scens, rid, results_dir = _prepare_run(scenarios, iterations, model, run_id, clean)
-    _reset_bench_homes()
-    _write_env_json(results_dir, scenarios=scens, iterations=iterations, model=model, run_id=rid)
-    _run_plugin("nac", "notion-agent-cli", scenarios=scens, iterations=iterations,
-                model=model, run_id=rid, results_dir=results_dir)
-    _contamination_summary(results_dir)
-    _behavior_analysis(results_dir)
-    typer.echo(f"\nDone. Results: {results_dir}")
+    _run_benchmark(
+        modes=["nac"], scenarios=scenarios, iterations=iterations,
+        model=model, run_id=run_id, clean=clean, cleanup=cleanup,
+    )
 
 
 @app.command()
 def mcp(
-    scenarios: str = typer.Option("", "-s", "--scenarios", help='Scenarios: "1-8", "1,3,5"'),
-    iterations: int = typer.Option(3, "-n", "--iterations", help="Iterations per scenario"),
-    model: str = typer.Option("", "-m", "--model", help="Claude model (e.g. claude-sonnet-4-6)"),
-    run_id: list[str] = typer.Option([], "-r", "--run-id", help="Custom run ID"),
-    clean: bool = typer.Option(False, help="Delete existing results first"),
+    scenarios: str = _common_options["scenarios"],
+    iterations: int = _common_options["iterations"],
+    model: str = _common_options["model"],
+    run_id: list[str] = _common_options["run_id"],
+    clean: bool = _common_options["clean"],
+    cleanup: bool = _common_options["cleanup"],
 ) -> None:
     """Run MCP sessions only."""
-    scens, rid, results_dir = _prepare_run(scenarios, iterations, model, run_id, clean)
-    _reset_bench_homes()
-    _write_env_json(results_dir, scenarios=scens, iterations=iterations, model=model, run_id=rid)
-    _run_plugin("mcp", "MCP", scenarios=scens, iterations=iterations,
-                model=model, run_id=rid, results_dir=results_dir)
-    _contamination_summary(results_dir)
-    typer.echo(f"\nDone. Results: {results_dir}")
+    _run_benchmark(
+        modes=["mcp"], scenarios=scenarios, iterations=iterations,
+        model=model, run_id=run_id, clean=clean, cleanup=cleanup,
+    )
 
 
 @app.command(name="all")
 def run_all(
-    scenarios: str = typer.Option("", "-s", "--scenarios", help='Scenarios: "1-8", "1,3,5"'),
-    iterations: int = typer.Option(3, "-n", "--iterations", help="Iterations per scenario"),
-    model: str = typer.Option("", "-m", "--model", help="Claude model (e.g. claude-sonnet-4-6)"),
-    run_id: list[str] = typer.Option([], "-r", "--run-id", help="Custom run ID"),
-    clean: bool = typer.Option(False, help="Delete existing results first"),
+    scenarios: str = _common_options["scenarios"],
+    iterations: int = _common_options["iterations"],
+    model: str = _common_options["model"],
+    run_id: list[str] = _common_options["run_id"],
+    clean: bool = _common_options["clean"],
+    cleanup: bool = _common_options["cleanup"],
 ) -> None:
     """Run both notion-agent-cli and MCP sessions, then compare."""
-    scens, rid, results_dir = _prepare_run(scenarios, iterations, model, run_id, clean)
-    _reset_bench_homes()
-    _write_env_json(results_dir, scenarios=scens, iterations=iterations, model=model, run_id=rid)
-    _run_plugin("nac", "notion-agent-cli", scenarios=scens, iterations=iterations,
-                model=model, run_id=rid, results_dir=results_dir)
-    _artifact_cleanup(rid)
-    _run_plugin("mcp", "MCP", scenarios=scens, iterations=iterations,
-                model=model, run_id=rid, results_dir=results_dir)
-    _contamination_summary(results_dir)
-    _behavior_analysis(results_dir)
-
-    # Auto-compare
-    groups = {
-        "nac": _load_summaries(results_dir, "nac"),
-        "mcp": _load_summaries(results_dir, "mcp"),
-    }
-    _print_comparison_table(groups)
-    _artifact_cleanup(rid)
-    typer.echo(f"\nDone. Results: {results_dir}")
+    _run_benchmark(
+        modes=["nac", "mcp"], scenarios=scenarios, iterations=iterations,
+        model=model, run_id=run_id, clean=clean, cleanup=cleanup,
+    )
 
 
 @app.command()
