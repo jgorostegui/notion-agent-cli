@@ -1,6 +1,6 @@
 {
   "name": "notion-agent-cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Notion workspace operations via CLI. TRIGGER when the user asks to read, create, edit, copy, merge, split, move, query, search, archive, export, or batch-update Notion pages, databases, or properties — including \"duplicate a page\", \"find duplicates\", \"compare pages\", \"replace a section\", \"add a comment\", \"apply a template\", or \"workspace map\". DO NOT TRIGGER for general web scraping, non-Notion APIs, or discussion about this plugin's code and benchmarks.",
   "author": {
     "name": "jgorostegui"
