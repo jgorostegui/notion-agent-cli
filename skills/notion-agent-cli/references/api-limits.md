@@ -1,8 +1,9 @@
 # Notion API Limits & Gotchas
 
 ## Rate Limiting
-- ~3 requests/second average. SDK auto-retries on 429 with exponential backoff.
-- RateLimiter enforces 400ms minimum interval (2.5 req/s) as defense-in-depth.
+- ~3 requests/second average. SDK auto-retries on 429 with exponential backoff (maxRetries: 3).
+- ConcurrencyLimiter defaults to serial (concurrency=1) for normal operations.
+- Bulk operations (importTable, _cloneDatabase, batchArchive) use _callBatch with concurrency=5.
 
 ## Size Limits
 - **100 blocks** max per `blocks.children.append` request.

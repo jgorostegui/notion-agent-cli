@@ -1,6 +1,6 @@
 /**
  * Property-based tests for helper functions
- * Properties 6, 8, 14, 24-27: RateLimiter, buildPropertyValue, safeName,
+ * Properties 6, 8, 14, 24-27: ConcurrencyLimiter, buildPropertyValue, safeName,
  * extractTitle/extractDbTitle, extractPropertyValue, token validation, normalizeId
  */
 
@@ -9,51 +9,55 @@ import { describe, it } from "node:test";
 import fc from "fast-check";
 import {
   buildPropertyValue,
+  ConcurrencyLimiter,
   csvEscape,
   extractDbTitle,
   extractPropertyValue,
   extractTitle,
   normalizeId,
-  RateLimiter,
   safeName,
 } from "../../scripts/actions.mjs";
 
-// ── Property 6: RateLimiter enforces minimum interval ───────────────────────
+// ── Property 6: ConcurrencyLimiter serializes with concurrency=1 ────────────
 
-describe("Property 6: RateLimiter enforces minimum interval", () => {
-  it("elapsed time between consecutive wait() completions ≥ 400ms", async () => {
-    const limiter = new RateLimiter(2.5); // 400ms interval
-    const timestamps = [];
+describe("Property 6: ConcurrencyLimiter", () => {
+  it("concurrency=1 serializes tasks", async () => {
+    const limiter = new ConcurrencyLimiter(1);
+    const order = [];
 
-    // Run 3 sequential waits
-    for (let i = 0; i < 3; i++) {
-      await limiter.wait();
-      timestamps.push(Date.now());
-    }
+    const task = async (id, delay) => {
+      await limiter.acquire();
+      order.push(`start-${id}`);
+      await new Promise((r) => setTimeout(r, delay));
+      order.push(`end-${id}`);
+      limiter.release();
+    };
 
-    for (let i = 1; i < timestamps.length; i++) {
-      const elapsed = timestamps[i] - timestamps[i - 1];
-      // Allow 50ms tolerance for timer imprecision
-      assert.ok(elapsed >= 350, `elapsed ${elapsed}ms should be ≥ 350ms (400ms - tolerance)`);
-    }
+    await Promise.all([task("a", 20), task("b", 10)]);
+    // With concurrency=1, a should finish before b starts
+    assert.equal(order[0], "start-a");
+    assert.equal(order[1], "end-a");
+    assert.equal(order[2], "start-b");
+    assert.equal(order[3], "end-b");
   });
 
-  it("concurrent callers serialize through the mutex", async () => {
-    const limiter = new RateLimiter(2.5);
-    const timestamps = [];
+  it("concurrency=3 allows parallel execution", async () => {
+    const limiter = new ConcurrencyLimiter(3);
+    let maxConcurrent = 0;
+    let current = 0;
 
-    // Fire 3 concurrent waits
-    await Promise.all([
-      limiter.wait().then(() => timestamps.push(Date.now())),
-      limiter.wait().then(() => timestamps.push(Date.now())),
-      limiter.wait().then(() => timestamps.push(Date.now())),
-    ]);
+    const task = async () => {
+      await limiter.acquire();
+      current++;
+      if (current > maxConcurrent) maxConcurrent = current;
+      await new Promise((r) => setTimeout(r, 20));
+      current--;
+      limiter.release();
+    };
 
-    timestamps.sort((a, b) => a - b);
-    for (let i = 1; i < timestamps.length; i++) {
-      const elapsed = timestamps[i] - timestamps[i - 1];
-      assert.ok(elapsed >= 350, `concurrent elapsed ${elapsed}ms should be ≥ 350ms`);
-    }
+    await Promise.all([task(), task(), task(), task(), task()]);
+    assert.ok(maxConcurrent >= 2, `Expected concurrency >= 2, got ${maxConcurrent}`);
+    assert.ok(maxConcurrent <= 3, `Expected concurrency <= 3, got ${maxConcurrent}`);
   });
 });
 

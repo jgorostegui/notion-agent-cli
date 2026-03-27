@@ -22,23 +22,27 @@ try {
 // RateLimiter — 400ms minimum interval with promise-queue mutex
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-class RateLimiter {
-  constructor(requestsPerSecond = 2.5) {
-    this.minInterval = Math.ceil(1000 / requestsPerSecond);
-    this.lastRequest = 0;
-    this._queue = Promise.resolve();
+class ConcurrencyLimiter {
+  constructor(defaultConcurrency = 1) {
+    this._max = defaultConcurrency;
+    this._running = 0;
+    this._queue = [];
   }
 
-  async wait() {
-    // Chain onto the queue so concurrent callers serialize
-    this._queue = this._queue.then(async () => {
-      const elapsed = Date.now() - this.lastRequest;
-      if (elapsed < this.minInterval) {
-        await new Promise((r) => setTimeout(r, this.minInterval - elapsed));
-      }
-      this.lastRequest = Date.now();
-    });
-    return this._queue;
+  async acquire() {
+    if (this._running < this._max) {
+      this._running++;
+      return;
+    }
+    await new Promise((resolve) => this._queue.push(resolve));
+  }
+
+  release() {
+    this._running--;
+    if (this._queue.length > 0) {
+      this._running++;
+      this._queue.shift()();
+    }
   }
 }
 
@@ -171,6 +175,62 @@ function blocksToMarkdown(blocks, indent = 0) {
   }
 
   return lines.join("\n");
+}
+
+/** Clone a mention from API response shape to request shape (strips name, avatar_url, etc.) */
+function _cloneMention(mention) {
+  switch (mention.type) {
+    case "user":
+      return { type: "user", user: { id: mention.user.id } };
+    case "page":
+      return { type: "page", page: { id: mention.page.id } };
+    case "database":
+      return { type: "database", database: { id: mention.database.id } };
+    case "date":
+      return { type: "date", date: mention.date };
+    case "template_mention":
+      return { type: "template_mention", template_mention: mention.template_mention };
+    default:
+      return undefined;
+  }
+}
+
+/** Clone a rich_text array from API response, preserving formatting, mentions, links, equations */
+function _cloneRichTextArray(arr) {
+  if (!arr?.length) return [{ type: "text", text: { content: "" } }];
+  return arr
+    .map((rt) => {
+      const clone = { type: rt.type };
+      if (rt.type === "text") {
+        clone.text = { content: rt.text.content };
+        if (rt.text.link) clone.text.link = rt.text.link;
+      } else if (rt.type === "mention") {
+        const m = _cloneMention(rt.mention);
+        if (!m) {
+          // link_preview/link_mention can't be created via API — convert to text with link
+          const lm = rt.mention?.link_mention;
+          const lp = rt.mention?.link_preview;
+          const url = lp?.url || lm?.href || lm?.url;
+          if (url) {
+            // Use title from link_mention metadata if available, otherwise plain_text/URL
+            const displayText = lm?.title || lp?.title || rt.plain_text || url;
+            return { type: "text", text: { content: displayText, link: { url } } };
+          }
+          return null;
+        }
+        clone.mention = m;
+      } else if (rt.type === "equation") {
+        clone.equation = rt.equation;
+      }
+      if (rt.annotations) {
+        const a = rt.annotations;
+        if (a.bold || a.italic || a.strikethrough || a.underline || a.code || (a.color && a.color !== "default")) {
+          clone.annotations = { ...a };
+        }
+      }
+      return clone;
+    })
+    .filter(Boolean);
 }
 
 /** Convert plain text to rich_text array, auto-chunking at 2000 chars */
@@ -481,6 +541,70 @@ function recreateBlock(block, children = []) {
   return newBlock;
 }
 
+/** Sanitize a recreated block for the create/append API.
+ *  - Chunks rich_text exceeding 2000-char API limit
+ *  - Sanitizes rich_text mentions (link_preview/link_mention to text links)
+ *  - Sanitizes caption mentions */
+function _sanitizeBlockForCreate(block) {
+  if (!block) return block;
+  const type = block.type;
+  if (!type || !block[type]) return block;
+  const content = block[type];
+
+  // Chunk rich_text elements exceeding 2000-char API limit
+  if (Array.isArray(content.rich_text)) {
+    const chunked = [];
+    for (const rt of content.rich_text) {
+      if (rt.type === "text" && rt.text?.content?.length > 2000) {
+        const text = rt.text.content;
+        for (let i = 0; i < text.length; i += 2000) {
+          const chunk = { type: "text", text: { content: text.slice(i, i + 2000) } };
+          if (rt.text.link) chunk.text.link = rt.text.link;
+          if (rt.annotations) chunk.annotations = rt.annotations;
+          chunked.push(chunk);
+        }
+      } else {
+        chunked.push(rt);
+      }
+    }
+    content.rich_text = chunked;
+  }
+
+  // Sanitize rich_text mentions in block content
+  if (Array.isArray(content.rich_text)) {
+    content.rich_text = _cloneRichTextArray(content.rich_text);
+  }
+
+  // Sanitize rich_text in caption (images, videos, etc.)
+  if (Array.isArray(content.caption)) {
+    content.caption = _cloneRichTextArray(content.caption);
+  }
+
+  return block;
+}
+
+/** Split deeply nested blocks for two-pass appending (Notion API allows max 2 levels per request).
+ *  Returns { truncated, deferred } where truncated has max `maxDepth` levels and deferred
+ *  records stripped children as { topIndex, childIndex, children }. */
+function _splitDeepChildren(blocks, _maxDepth = 2) {
+  const truncated = structuredClone(blocks);
+  const deferred = [];
+  for (let ti = 0; ti < truncated.length; ti++) {
+    const block = truncated[ti];
+    const type = block.type;
+    if (!type || !block[type]?.children) continue;
+    const children = block[type].children;
+    for (let ci = 0; ci < children.length; ci++) {
+      const child = children[ci];
+      const childType = child.type;
+      if (!childType || !child[childType]?.children) continue;
+      deferred.push({ topIndex: ti, childIndex: ci, children: child[childType].children });
+      delete child[childType].children;
+    }
+  }
+  return { truncated, deferred };
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Pure Helper Functions
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -579,6 +703,57 @@ function buildPropertyValue(type, value) {
     default:
       return {};
   }
+}
+
+/** Clone a property value from API response to request shape (bypasses buildPropertyValue) */
+function clonePropertyValue(prop) {
+  const type = prop?.type;
+  if (!type) return undefined;
+  switch (type) {
+    case "title":
+      return { title: _cloneRichTextArray(prop.title) };
+    case "rich_text":
+      return { rich_text: _cloneRichTextArray(prop.rich_text) };
+    case "number":
+      return prop.number != null ? { number: prop.number } : undefined;
+    case "select":
+      return prop.select ? { select: { name: prop.select.name } } : undefined;
+    case "multi_select":
+      return { multi_select: (prop.multi_select || []).map((s) => ({ name: s.name })) };
+    case "checkbox":
+      return { checkbox: prop.checkbox };
+    case "url":
+      return prop.url != null ? { url: prop.url } : undefined;
+    case "email":
+      return prop.email != null ? { email: prop.email } : undefined;
+    case "phone_number":
+      return prop.phone_number != null ? { phone_number: prop.phone_number } : undefined;
+    case "status":
+      return prop.status ? { status: { name: prop.status.name } } : undefined;
+    case "date":
+      return prop.date ? { date: prop.date } : undefined;
+    case "people":
+      return prop.people?.length ? { people: prop.people.map((p) => ({ id: p.id })) } : undefined;
+    default:
+      return undefined;
+  }
+}
+
+/** Clone page icon. Passes through emoji/external/custom_emoji/icon types. File type needs re-upload. */
+function _clonePageIcon(icon) {
+  if (!icon) return undefined;
+  if (icon.type === "emoji" || icon.type === "external" || icon.type === "custom_emoji" || icon.type === "icon")
+    return icon;
+  // type === "file": needs _reuploadNotionFile (handled by caller)
+  return undefined;
+}
+
+/** Clone page cover. Passes through external type. File type needs re-upload via caller. */
+function _clonePageCover(cover) {
+  if (!cover) return undefined;
+  if (cover.type === "external") return cover;
+  // type === "file": needs _reuploadNotionFile (handled by caller)
+  return undefined;
 }
 
 /** Normalize ID: 32-char hex → hyphenated UUID, already-hyphenated unchanged, idempotent */
@@ -729,8 +904,8 @@ export class NotionActions {
     const t = token || process.env.NOTION_TOKEN;
     if (!t)
       throw new Error("Notion token required. Run /notion-agent-cli:setup or set NOTION_TOKEN in the environment.");
-    this.client = new Client({ auth: t, notionVersion: "2025-09-03" });
-    this.rate = new RateLimiter();
+    this.client = new Client({ auth: t, notionVersion: "2025-09-03", retry: { maxRetries: 3 } });
+    this._limiter = new ConcurrencyLimiter(1);
     this._snapshots = new Map();
     this._dsCache = new Map();
     this._verbose = !!(process.env.DEBUG || process.env.VERBOSE);
@@ -739,15 +914,73 @@ export class NotionActions {
 
   // ── Internal Methods ──────────────────────────────────────────────────────
 
-  /** Route every SDK call through RateLimiter */
+  /** Route every SDK call through ConcurrencyLimiter */
   async _call(fn) {
-    await this.rate.wait();
-    this._apiCallCount++;
-    if (this._verbose) {
-      const name = fn.name || "anonymous";
-      process.stderr.write(`[notion] ${name}\n`);
+    await this._limiter.acquire();
+    try {
+      this._apiCallCount++;
+      if (this._verbose) {
+        const name = fn.name || "anonymous";
+        process.stderr.write(`[notion] ${name}\n`);
+      }
+      return await fn();
+    } finally {
+      this._limiter.release();
     }
-    return fn();
+  }
+
+  /** Run tasks concurrently with a concurrency limit. Returns array of { ok, value } or { ok, error }. */
+  async _callBatch(tasks, concurrency = 5) {
+    const limiter = new ConcurrencyLimiter(concurrency);
+    const results = [];
+    const promises = tasks.map(async (fn, i) => {
+      await limiter.acquire();
+      try {
+        this._apiCallCount++;
+        if (this._verbose) {
+          const name = fn.name || "anonymous";
+          process.stderr.write(`[notion] batch ${name}\n`);
+        }
+        results[i] = { ok: true, value: await fn() };
+      } catch (e) {
+        results[i] = { ok: false, error: e };
+      } finally {
+        limiter.release();
+      }
+    });
+    await Promise.all(promises);
+    return results;
+  }
+
+  /** Re-upload a Notion-hosted file via the File Upload API.
+   *  Downloads from the presigned URL, uploads via fileUploads.create + send.
+   *  Returns { type: "file_upload", file_upload: { id } } or undefined on failure. */
+  async _reuploadNotionFile(fileUrl) {
+    try {
+      // Download the file from the presigned S3 URL
+      const resp = await fetch(fileUrl);
+      if (!resp.ok) return undefined;
+      const contentType = resp.headers.get("content-type") || "application/octet-stream";
+      const blob = await resp.blob();
+
+      // Guess filename from URL path
+      const urlPath = new URL(fileUrl).pathname;
+      const filename = decodeURIComponent(urlPath.split("/").pop() || "file");
+
+      // Create file upload object
+      const upload = await this._call(() =>
+        this.client.fileUploads.create({ mode: "single_part", filename, content_type: contentType }),
+      );
+
+      // Send file bytes
+      await this._call(() =>
+        this.client.fileUploads.send({ file_upload_id: upload.id, file: { filename, data: blob } }),
+      );
+
+      return { type: "file_upload", file_upload: { id: upload.id } };
+    } catch {
+      return undefined;
+    }
   }
 
   /** Paginate blocks.children.list — shallow (immediate children only) */
@@ -819,13 +1052,60 @@ export class NotionActions {
     return results;
   }
 
-  /** Append blocks in chunks of 100 */
+  /** Append blocks in chunks of 100. Returns created block IDs. */
   async _appendInBatches(pageId, blocks) {
     const nid = normalizeId(pageId);
+    const allIds = [];
     for (let i = 0; i < blocks.length; i += 100) {
       const chunk = blocks.slice(i, i + 100);
-      await this._call(() => this.client.blocks.children.append({ block_id: nid, children: chunk }));
+      const resp = await this._call(() => this.client.blocks.children.append({ block_id: nid, children: chunk }));
+      allIds.push(...resp.results.map((r) => r.id));
     }
+    return allIds;
+  }
+
+  /** Append blocks with deep nesting support (two-pass). Returns created top-level block IDs. */
+  async _appendWithDeepChildren(parentId, blocks) {
+    const { truncated, deferred } = _splitDeepChildren(blocks, 2);
+    if (deferred.length === 0) {
+      return this._appendInBatches(parentId, truncated);
+    }
+    const createdIds = await this._appendInBatches(parentId, truncated);
+
+    const byTop = new Map();
+    for (const d of deferred) {
+      if (!byTop.has(d.topIndex)) byTop.set(d.topIndex, []);
+      byTop.get(d.topIndex).push(d);
+    }
+    for (const [topIdx, entries] of byTop) {
+      const parentBlockId = createdIds[topIdx];
+      const children = await this._fetchBlocksShallow(parentBlockId);
+      for (const { childIndex, children: deepChildren } of entries) {
+        await this._appendWithDeepChildren(children[childIndex].id, deepChildren);
+      }
+    }
+    return createdIds;
+  }
+
+  /** Positional append with deep nesting support. Returns created block IDs. */
+  async _appendAtPositionWithDeepChildren(parentId, blocks, position) {
+    const { truncated, deferred } = _splitDeepChildren(blocks, 2);
+    const createdIds = await this._appendAtPosition(parentId, truncated, position);
+    if (deferred.length === 0) return createdIds;
+
+    const byTop = new Map();
+    for (const d of deferred) {
+      if (!byTop.has(d.topIndex)) byTop.set(d.topIndex, []);
+      byTop.get(d.topIndex).push(d);
+    }
+    for (const [topIdx, entries] of byTop) {
+      const parentBlockId = createdIds[topIdx];
+      const children = await this._fetchBlocksShallow(parentBlockId);
+      for (const { childIndex, children: deepChildren } of entries) {
+        await this._appendWithDeepChildren(children[childIndex].id, deepChildren);
+      }
+    }
+    return createdIds;
   }
 
   /** Positional insertion with multi-batch chaining. Returns created block IDs. */
@@ -1023,15 +1303,27 @@ export class NotionActions {
         parent = { page_id: nid };
       }
 
-      const page = await this._call(() =>
-        this.client.pages.create({
-          parent,
-          properties: { title: [{ text: { content: title || "" } }] },
-          children: firstBatch,
-        }),
-      );
-
-      if (remaining.length > 0) await this._appendInBatches(page.id, remaining);
+      const { deferred: firstDeferred } = _splitDeepChildren(firstBatch, 2);
+      let page;
+      if (firstDeferred.length === 0) {
+        page = await this._call(() =>
+          this.client.pages.create({
+            parent,
+            properties: { title: [{ text: { content: title || "" } }] },
+            children: firstBatch,
+          }),
+        );
+        if (remaining.length > 0) await this._appendWithDeepChildren(page.id, remaining);
+      } else {
+        page = await this._call(() =>
+          this.client.pages.create({
+            parent,
+            properties: { title: [{ text: { content: title || "" } }] },
+            children: [],
+          }),
+        );
+        await this._appendWithDeepChildren(page.id, blocks);
+      }
       return { success: true, pageId: page.id, url: page.url };
     } catch (e) {
       return { success: false, error: String(e) };
@@ -1049,7 +1341,7 @@ export class NotionActions {
         await this._call(() => this.client.blocks.delete({ block_id: block.id })).catch(() => {});
       }
       const blocks = markdownToBlocks(contentMd);
-      await this._appendInBatches(nid, blocks);
+      await this._appendWithDeepChildren(nid, blocks);
       return { success: true, pageId: nid };
     } catch (e) {
       return { success: false, error: String(e) };
@@ -1061,7 +1353,7 @@ export class NotionActions {
     try {
       const nid = normalizeId(pageId);
       const blocks = markdownToBlocks(contentMd);
-      await this._appendInBatches(nid, blocks);
+      await this._appendWithDeepChildren(nid, blocks);
       return { success: true, pageId: nid };
     } catch (e) {
       return { success: false, error: String(e) };
@@ -1099,7 +1391,7 @@ export class NotionActions {
         position = { type: "end" };
       }
 
-      const blockIds = await this._appendAtPosition(nid, blocks, position);
+      const blockIds = await this._appendAtPositionWithDeepChildren(nid, blocks, position);
       return { success: true, blockIds };
     } catch (e) {
       return { success: false, error: String(e) };
@@ -1190,6 +1482,131 @@ export class NotionActions {
     }
   }
 
+  /** Clone a database: schema + rows + row page bodies. Does not remap relation properties (v2).
+   *  Row page content (child blocks) is copied via _deepCopyBlocks. */
+  async _cloneDatabase(sourceDbId, targetParentId) {
+    const srcId = normalizeId(sourceDbId);
+    const tgtId = normalizeId(targetParentId);
+    try {
+      // Get source database metadata
+      const db = await this._call(() => this.client.databases.retrieve({ database_id: srcId }));
+
+      // Get source schema via data source (empty databases have no data sources)
+      if (!db.data_sources?.length) {
+        // Empty database — clone shell with metadata (no schema, no rows)
+        const createPayload = {
+          parent: { type: "page_id", page_id: tgtId },
+          title: db.title?.length ? _cloneRichTextArray(db.title) : [{ text: { content: "" } }],
+          initial_data_source: { properties: {} },
+        };
+        if (db.description?.length) createPayload.description = _cloneRichTextArray(db.description);
+        let emptyIcon = _clonePageIcon(db.icon);
+        if (!emptyIcon && db.icon?.type === "file" && db.icon.file?.url) {
+          emptyIcon = await this._reuploadNotionFile(db.icon.file.url);
+        }
+        if (emptyIcon) createPayload.icon = emptyIcon;
+        let emptyCover = _clonePageCover(db.cover);
+        if (!emptyCover && db.cover?.type === "file" && db.cover.file?.url) {
+          emptyCover = await this._reuploadNotionFile(db.cover.file.url);
+        }
+        if (emptyCover) createPayload.cover = emptyCover;
+        if (db.is_inline) createPayload.is_inline = true;
+        const newDb = await this._call(() => this.client.databases.create(createPayload));
+        return {
+          success: true,
+          databaseId: newDb.id,
+          url: newDb.url,
+          entriesCloned: 0,
+          rowIdMap: new Map(),
+          errors: [],
+        };
+      }
+      const dsId = await this._resolveDataSourceId(srcId);
+      const ds = await this._call(() => this.client.dataSources.retrieve({ data_source_id: dsId }));
+
+      // Build cloneable schema (skip computed/read-only and relation types)
+      const SKIP_SCHEMA_TYPES = new Set([
+        "formula",
+        "rollup",
+        "created_time",
+        "created_by",
+        "last_edited_time",
+        "last_edited_by",
+        "unique_id",
+      ]);
+      const schema = {};
+      const cloneableProps = [];
+      for (const [name, prop] of Object.entries(ds.properties || {})) {
+        if (SKIP_SCHEMA_TYPES.has(prop.type)) continue;
+        schema[name] = { [prop.type]: prop[prop.type] || {} };
+        cloneableProps.push([name, prop.type]);
+      }
+
+      // Create target database with metadata (rich text title, icon, cover, description)
+      const createPayload = {
+        parent: { type: "page_id", page_id: tgtId },
+        title: db.title?.length ? _cloneRichTextArray(db.title) : [{ text: { content: "" } }],
+        initial_data_source: { properties: schema },
+      };
+      if (db.description?.length) createPayload.description = _cloneRichTextArray(db.description);
+      let dbIcon = _clonePageIcon(db.icon);
+      if (!dbIcon && db.icon?.type === "file" && db.icon.file?.url) {
+        dbIcon = await this._reuploadNotionFile(db.icon.file.url);
+      }
+      if (dbIcon) createPayload.icon = dbIcon;
+      let dbCover = _clonePageCover(db.cover);
+      if (!dbCover && db.cover?.type === "file" && db.cover.file?.url) {
+        dbCover = await this._reuploadNotionFile(db.cover.file.url);
+      }
+      if (dbCover) createPayload.cover = dbCover;
+      if (db.is_inline) createPayload.is_inline = true;
+      const newDb = await this._call(() => this.client.databases.create(createPayload));
+
+      // Query all source entries
+      const entries = await this._paginateQuery(dsId);
+      const newDsId = await this._resolveDataSourceId(newDb.id);
+
+      // Pass 2: Create rows concurrently, build ID map
+      const rowTasks = entries.map((entry) => () => {
+        const properties = {};
+        for (const [name] of cloneableProps) {
+          const prop = entry.properties?.[name];
+          if (!prop || SKIP_SCHEMA_TYPES.has(prop.type)) continue;
+          if (prop.type === "relation" || prop.type === "files") continue; // relation values need ID remapping (v2), files URLs expire
+          const cloned = clonePropertyValue(prop);
+          if (cloned) properties[name] = cloned;
+        }
+        return this.client.pages.create({ parent: { data_source_id: newDsId }, properties });
+      });
+
+      const rowResults = await this._callBatch(rowTasks, 5);
+      const rowIdMap = new Map();
+      let created = 0;
+      const errors = [];
+      for (let i = 0; i < rowResults.length; i++) {
+        if (rowResults[i].ok) {
+          rowIdMap.set(entries[i].id, rowResults[i].value.id);
+          created++;
+        } else {
+          errors.push({ error: String(rowResults[i].error) });
+        }
+      }
+
+      // Pass 3: Copy row page bodies
+      for (const [oldId, newId] of rowIdMap) {
+        try {
+          await this._deepCopyBlocks(oldId, newId);
+        } catch (e) {
+          errors.push({ error: `Row body copy failed: ${e}` });
+        }
+      }
+
+      return { success: true, databaseId: newDb.id, url: newDb.url, entriesCloned: created, rowIdMap, errors };
+    } catch (e) {
+      return { success: false, error: String(e) };
+    }
+  }
+
   /** Add database entry with auto-detected property types */
   async addDatabaseEntry(dbId, values) {
     try {
@@ -1244,10 +1661,8 @@ export class NotionActions {
     // Resolve data source once
     const dsId = await this._resolveDataSourceId(dbResult.databaseId);
 
-    // Insert rows directly via pages.create
-    let created = 0;
-    const errors = [];
-    for (const row of parsed.rows) {
+    // Insert rows concurrently via _callBatch
+    const tasks = parsed.rows.map((row) => () => {
       const properties = {};
       parsed.headers.forEach((h, idx) => {
         if (!row[idx]) return;
@@ -1257,11 +1672,20 @@ export class NotionActions {
         else if (t === "checkbox") val = /^(true|yes)$/i.test(val);
         properties[h] = buildPropertyValue(t, val);
       });
-      try {
-        await this._call(() => this.client.pages.create({ parent: { data_source_id: dsId }, properties }));
+      return this.client.pages.create({ parent: { data_source_id: dsId }, properties });
+    });
+
+    const results = await this._callBatch(tasks, 5);
+    let created = 0;
+    const errors = [];
+    for (let i = 0; i < results.length; i++) {
+      if (results[i].ok) {
         created++;
-      } catch (e) {
-        errors.push({ row: Object.fromEntries(parsed.headers.map((h, idx) => [h, row[idx]])), error: String(e) });
+      } else {
+        errors.push({
+          row: Object.fromEntries(parsed.headers.map((h, idx) => [h, parsed.rows[i][idx]])),
+          error: String(results[i].error),
+        });
       }
     }
 
@@ -1348,34 +1772,222 @@ export class NotionActions {
 
       // Recreate in order
       const recreated = ordered.map((b) => recreateBlock(b, b.children || [])).filter(Boolean);
-      await this._appendInBatches(nid, recreated);
+      await this._appendWithDeepChildren(nid, recreated);
       return { success: true, reordered: newOrder.length };
     } catch (e) {
       return { success: false, error: String(e) };
     }
   }
 
-  /** Deep copy page + subpages recursively. Skips child_database. */
+  /** Deep copy page (shell + blocks + subpages + child databases) recursively. */
   async deepCopy(sourcePageId, targetParentId) {
     const srcId = normalizeId(sourcePageId);
     const tgtId = normalizeId(targetParentId);
     try {
       const page = await this._call(() => this.client.pages.retrieve({ page_id: srcId }));
-      const title = extractTitle(page);
-      const md = await this.getPage(srcId);
-      const firstNewlines = md.indexOf("\n\n");
-      const contentMd = firstNewlines >= 0 ? md.slice(firstNewlines + 2) : md;
-      const result = await this.createPage(tgtId, title, contentMd);
-      if (!result.success) return result;
 
-      const blocks = await this._fetchBlocksShallow(srcId);
-      for (const block of blocks) {
-        if (block.type === "child_page") await this.deepCopy(block.id, result.pageId);
+      // Extract rich text title (preserves formatting, mentions, links)
+      let titleRt = [{ text: { content: "Untitled" } }];
+      for (const prop of Object.values(page.properties || {})) {
+        if (prop.type === "title" && prop.title?.length) {
+          titleRt = _cloneRichTextArray(prop.title);
+          break;
+        }
       }
-      return { success: true, newPageId: result.pageId };
+
+      // Build creation payload with shell metadata
+      const createPayload = {
+        parent: { page_id: tgtId },
+        properties: { title: titleRt },
+      };
+      let icon = _clonePageIcon(page.icon);
+      if (!icon && page.icon?.type === "file" && page.icon.file?.url) {
+        icon = await this._reuploadNotionFile(page.icon.file.url);
+      }
+      let cover = _clonePageCover(page.cover);
+      if (!cover && page.cover?.type === "file" && page.cover.file?.url) {
+        cover = await this._reuploadNotionFile(page.cover.file.url);
+      }
+      if (icon) createPayload.icon = icon;
+      if (cover) createPayload.cover = cover;
+
+      const newPage = await this._call(() => this.client.pages.create(createPayload));
+
+      // Copy is_locked (update-only field, not available on create)
+      if (page.is_locked) {
+        await this._call(() => this.client.pages.update({ page_id: newPage.id, is_locked: true })).catch(() => {});
+      }
+
+      // Copy blocks with rollback on root failure
+      try {
+        const warnings = await this._deepCopyBlocks(srcId, newPage.id);
+
+        if (page.icon && !icon)
+          warnings.push({ type: "icon_skipped", reason: "Notion-hosted file icon requires re-upload" });
+        if (page.cover && !cover)
+          warnings.push({ type: "cover_skipped", reason: "Notion-hosted file cover requires re-upload" });
+
+        const result = { success: true, newPageId: newPage.id };
+        if (warnings.length > 0) result.warnings = warnings;
+        return result;
+      } catch (contentError) {
+        try {
+          await this._call(() => this.client.pages.update({ page_id: newPage.id, archived: true }));
+        } catch {
+          /* best effort */
+        }
+        return { success: false, error: `Content copy failed (page archived): ${contentError}` };
+      }
     } catch (e) {
       return { success: false, error: String(e) };
     }
+  }
+
+  /** Recursively copy blocks from source to target. Returns warnings array. */
+  async _deepCopyBlocks(sourceId, targetId) {
+    const MEDIA_TYPES = new Set(["image", "video", "audio", "file", "pdf"]);
+    const INLINE_CHILDREN_TYPES = new Set(["table", "column_list"]);
+    const blocks = await this._fetchBlocksShallow(sourceId);
+    const tgtId = normalizeId(targetId);
+    const warnings = [];
+    let batch = [];
+    let batchSources = [];
+
+    const flushBatch = async () => {
+      if (batch.length === 0) return;
+      try {
+        const resp = await this._call(() => this.client.blocks.children.append({ block_id: tgtId, children: batch }));
+        for (let i = 0; i < batchSources.length; i++) {
+          if (batchSources[i].has_children && resp.results[i]?.id) {
+            const childWarnings = await this._deepCopyBlocks(batchSources[i].id, resp.results[i].id);
+            warnings.push(...childWarnings);
+          }
+        }
+      } catch (e) {
+        warnings.push({ type: "batch_append_failed", blockCount: batch.length, error: String(e) });
+      }
+      batch = [];
+      batchSources = [];
+    };
+
+    for (const block of blocks) {
+      if (block.type === "child_page") {
+        await flushBatch();
+        const result = await this.deepCopy(block.id, tgtId);
+        if (!result.success) {
+          warnings.push({ type: "child_page", sourceId: block.id, error: result.error });
+        } else if (result.warnings) {
+          warnings.push(...result.warnings);
+        }
+      } else if (block.type === "child_database") {
+        await flushBatch();
+        const result = await this._cloneDatabase(block.id, tgtId);
+        if (!result.success) {
+          warnings.push({ type: "child_database", sourceId: block.id, error: result.error });
+        } else if (result.errors?.length) {
+          for (const e of result.errors) {
+            warnings.push({ type: "child_database_row", databaseId: result.databaseId, ...e });
+          }
+        }
+      } else {
+        // Table and column_list require children inline at creation time
+        let cloned;
+        let blockForRecursion = block;
+        if (INLINE_CHILDREN_TYPES.has(block.type) && block.has_children) {
+          const inlineChildren = await this._fetchBlocksShallow(block.id);
+          const clonedChildren = [];
+          for (const c of inlineChildren) {
+            // column blocks also require their content children inline
+            if (c.type === "column" && c.has_children) {
+              const colContent = await this._fetchBlocksShallow(c.id);
+              const clonedColContent = [];
+              for (const cc of colContent) {
+                // Handle tables inside columns (need inline table_row children)
+                if (cc.type === "table" && cc.has_children) {
+                  const tableRows = await this._fetchBlocksShallow(cc.id);
+                  const clonedRows = tableRows
+                    .map((r) => _sanitizeBlockForCreate(recreateBlock(r, [])))
+                    .filter(Boolean);
+                  const tb = _sanitizeBlockForCreate(recreateBlock(cc, clonedRows));
+                  if (tb) clonedColContent.push(tb);
+                  // Handle Notion-hosted images inside columns (need re-upload)
+                } else if (MEDIA_TYPES.has(cc.type) && cc[cc.type]?.type === "file" && cc[cc.type]?.file?.url) {
+                  const uploaded = await this._reuploadNotionFile(cc[cc.type].file.url);
+                  if (uploaded) {
+                    const mediaBlock = _sanitizeBlockForCreate(recreateBlock(cc, []));
+                    if (mediaBlock) {
+                      mediaBlock[cc.type] = { type: "file_upload", file_upload: { id: uploaded.file_upload.id } };
+                      if (cc[cc.type].caption?.length) mediaBlock[cc.type].caption = cc[cc.type].caption;
+                      clonedColContent.push(mediaBlock);
+                    }
+                  } else {
+                    warnings.push({ type: "media_upload_failed", blockType: cc.type, sourceId: cc.id });
+                  }
+                  // Skip external media with invalid URLs inside columns
+                } else if (
+                  MEDIA_TYPES.has(cc.type) &&
+                  cc[cc.type]?.type === "external" &&
+                  !(cc[cc.type]?.external?.url || "").startsWith("http")
+                ) {
+                  warnings.push({ type: "invalid_media_url_skipped", blockType: cc.type, sourceId: cc.id });
+                } else {
+                  const cb = _sanitizeBlockForCreate(recreateBlock(cc, []));
+                  if (cb) clonedColContent.push(cb);
+                }
+              }
+              const colBlock = _sanitizeBlockForCreate(recreateBlock(c, clonedColContent));
+              if (colBlock) clonedChildren.push(colBlock);
+            } else {
+              const cc = _sanitizeBlockForCreate(recreateBlock(c, []));
+              if (cc) clonedChildren.push(cc);
+            }
+          }
+          cloned = _sanitizeBlockForCreate(recreateBlock(block, clonedChildren));
+          blockForRecursion = { ...block, has_children: false };
+        } else {
+          cloned = _sanitizeBlockForCreate(recreateBlock(block, []));
+        }
+        if (!cloned) continue;
+        // Skip external media with invalid URLs (data: URIs, relative paths — API rejects them)
+        if (MEDIA_TYPES.has(block.type) && cloned[block.type]?.type === "external") {
+          const extUrl = cloned[block.type].external?.url || "";
+          if (!extUrl.startsWith("https://") && !extUrl.startsWith("http://")) {
+            warnings.push({
+              type: "invalid_media_url_skipped",
+              blockType: block.type,
+              sourceId: block.id,
+              url: extUrl.substring(0, 80),
+            });
+            continue;
+          }
+        }
+        // Re-upload Notion-hosted media files via file upload API
+        // Flush batch first and append media individually so a failure only loses one block
+        if (MEDIA_TYPES.has(block.type) && block[block.type]?.type === "file" && block[block.type]?.file?.url) {
+          await flushBatch();
+          const uploaded = await this._reuploadNotionFile(block[block.type].file.url);
+          if (!uploaded) {
+            warnings.push({ type: "media_upload_failed", blockType: block.type, sourceId: block.id });
+            continue;
+          }
+          cloned[block.type] = { type: "file_upload", file_upload: { id: uploaded.file_upload.id } };
+          const origContent = block[block.type];
+          if (origContent.caption?.length) cloned[block.type].caption = origContent.caption;
+          // Append individually — if Notion rejects this block, only it is lost
+          try {
+            await this._call(() => this.client.blocks.children.append({ block_id: tgtId, children: [cloned] }));
+          } catch (e) {
+            warnings.push({ type: "media_append_failed", blockType: block.type, sourceId: block.id, error: String(e) });
+          }
+          continue;
+        }
+        batch.push(cloned);
+        batchSources.push(blockForRecursion);
+        if (batch.length >= 100) await flushBatch();
+      }
+    }
+    await flushBatch();
+    return warnings;
   }
 
   /** Copy a page with optional modifications — read source + create modified copy in one call. */
@@ -1633,14 +2245,15 @@ export class NotionActions {
 
   /** Archive multiple pages */
   async batchArchive(pageIds) {
+    const tasks = pageIds.map((id) => () => this.client.pages.update({ page_id: normalizeId(id), archived: true }));
+    const results = await this._callBatch(tasks, 5);
     let archived = 0;
     const errors = [];
-    for (const id of pageIds) {
-      try {
-        await this._call(() => this.client.pages.update({ page_id: normalizeId(id), archived: true }));
+    for (let i = 0; i < results.length; i++) {
+      if (results[i].ok) {
         archived++;
-      } catch (e) {
-        errors.push({ id, error: String(e) });
+      } else {
+        errors.push({ id: pageIds[i], error: String(results[i].error) });
       }
     }
     return { success: true, archived, errors };
@@ -2377,9 +2990,17 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
 // Named exports for testing and programmatic use
 export {
+  _cloneMention,
+  _clonePageCover,
+  _clonePageIcon,
+  _cloneRichTextArray,
+  _sanitizeBlockForCreate,
+  _splitDeepChildren,
   ACTIONS,
   blocksToMarkdown,
   buildPropertyValue,
+  ConcurrencyLimiter,
+  clonePropertyValue,
   csvEscape,
   extractDbTitle,
   extractPropertyValue,
@@ -2392,7 +3013,6 @@ export {
   markdownToBlocks,
   normalizeId,
   parseMarkdownTableData,
-  RateLimiter,
   recreateBlock,
   richTextToMd,
   safeName,

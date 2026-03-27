@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  _cloneMention,
+  _clonePageCover,
+  _clonePageIcon,
+  _cloneRichTextArray,
+  _splitDeepChildren,
   buildPropertyValue,
+  clonePropertyValue,
   csvEscape,
   extractDbTitle,
   extractPropertyValue,
@@ -450,5 +456,277 @@ describe("batchArchive error reporting", () => {
     const result = await actions.batchArchive(["id1"]);
     assert.equal(result.archived, 1);
     assert.deepEqual(result.errors, []);
+  });
+});
+
+// ── Clone helpers ───────────────────────────────────────────────────────────
+
+describe("_cloneMention", () => {
+  it("strips response-only fields from user mentions", () => {
+    const result = _cloneMention({
+      type: "user",
+      user: { id: "u1", name: "Alice", avatar_url: "https://example.com/a.png" },
+    });
+    assert.deepEqual(result, { type: "user", user: { id: "u1" } });
+  });
+
+  it("produces correct request shape for page/database/date mentions", () => {
+    assert.deepEqual(_cloneMention({ type: "page", page: { id: "p1" } }), { type: "page", page: { id: "p1" } });
+    assert.deepEqual(_cloneMention({ type: "database", database: { id: "d1" } }), {
+      type: "database",
+      database: { id: "d1" },
+    });
+    assert.deepEqual(
+      _cloneMention({ type: "date", date: { start: "2026-01-01", end: "2026-01-02" } }).date.end,
+      "2026-01-02",
+    );
+  });
+
+  it("returns undefined for unknown mention types", () => {
+    assert.equal(_cloneMention({ type: "unknown_thing", data: {} }), undefined);
+  });
+});
+
+describe("_cloneRichTextArray", () => {
+  it("preserves bold, italic, link annotations", () => {
+    const input = [
+      {
+        type: "text",
+        text: { content: "bold" },
+        annotations: {
+          bold: true,
+          italic: false,
+          strikethrough: false,
+          underline: false,
+          code: false,
+          color: "default",
+        },
+      },
+      {
+        type: "text",
+        text: { content: "link", link: { url: "https://example.com" } },
+        annotations: {
+          bold: false,
+          italic: false,
+          strikethrough: false,
+          underline: false,
+          code: false,
+          color: "default",
+        },
+      },
+    ];
+    const result = _cloneRichTextArray(input);
+    assert.equal(result.length, 2);
+    assert.ok(result[0].annotations.bold);
+    assert.deepEqual(result[1].text.link, { url: "https://example.com" });
+  });
+
+  it("filters out unrecognized mention types without URL", () => {
+    const input = [
+      { type: "text", text: { content: "hello" } },
+      { type: "mention", mention: { type: "unknown_x" } },
+      { type: "text", text: { content: "world" } },
+    ];
+    const result = _cloneRichTextArray(input);
+    assert.equal(result.length, 2);
+  });
+
+  it("converts link_preview mentions to clickable text links", () => {
+    const input = [
+      {
+        type: "mention",
+        mention: { type: "link_preview", link_preview: { url: "https://github.com/foo" } },
+        plain_text: "https://github.com/foo",
+        annotations: {
+          bold: false,
+          italic: false,
+          strikethrough: false,
+          underline: false,
+          code: false,
+          color: "default",
+        },
+      },
+    ];
+    const result = _cloneRichTextArray(input);
+    assert.equal(result[0].type, "text");
+    assert.deepEqual(result[0].text.link, { url: "https://github.com/foo" });
+  });
+
+  it("converts link_mention mentions to clickable text links (href field)", () => {
+    const input = [
+      {
+        type: "mention",
+        mention: {
+          type: "link_mention",
+          link_mention: { href: "https://console.aws.amazon.com", title: "AWS Console" },
+        },
+        plain_text: "https://console.aws.amazon.com",
+        annotations: {
+          bold: false,
+          italic: false,
+          strikethrough: false,
+          underline: false,
+          code: false,
+          color: "default",
+        },
+      },
+    ];
+    const result = _cloneRichTextArray(input);
+    assert.equal(result[0].type, "text");
+    assert.deepEqual(result[0].text.link, { url: "https://console.aws.amazon.com" });
+  });
+
+  it("strips default-only annotations", () => {
+    const input = [
+      {
+        type: "text",
+        text: { content: "plain" },
+        annotations: {
+          bold: false,
+          italic: false,
+          strikethrough: false,
+          underline: false,
+          code: false,
+          color: "default",
+        },
+      },
+    ];
+    assert.equal(_cloneRichTextArray(input)[0].annotations, undefined);
+  });
+
+  it("returns fallback for empty input", () => {
+    assert.deepEqual(_cloneRichTextArray([]), [{ type: "text", text: { content: "" } }]);
+    assert.deepEqual(_cloneRichTextArray(null), [{ type: "text", text: { content: "" } }]);
+  });
+});
+
+describe("clonePropertyValue", () => {
+  it("clones supported types correctly", () => {
+    assert.deepEqual(clonePropertyValue({ type: "number", number: 42 }), { number: 42 });
+    assert.deepEqual(clonePropertyValue({ type: "checkbox", checkbox: true }), { checkbox: true });
+    assert.deepEqual(clonePropertyValue({ type: "url", url: "https://x.com" }), { url: "https://x.com" });
+    assert.deepEqual(clonePropertyValue({ type: "email", email: "a@b.com" }), { email: "a@b.com" });
+    assert.deepEqual(clonePropertyValue({ type: "phone_number", phone_number: "+1-555" }), { phone_number: "+1-555" });
+    assert.deepEqual(clonePropertyValue({ type: "select", select: { id: "s1", name: "A", color: "red" } }), {
+      select: { name: "A" },
+    });
+    assert.deepEqual(clonePropertyValue({ type: "status", status: { name: "Done" } }), { status: { name: "Done" } });
+    assert.deepEqual(clonePropertyValue({ type: "people", people: [{ id: "u1", name: "Alice" }] }), {
+      people: [{ id: "u1" }],
+    });
+  });
+
+  it("preserves full date object including end and time_zone", () => {
+    const dateObj = { start: "2026-01-01", end: "2026-01-02", time_zone: "America/New_York" };
+    assert.deepEqual(clonePropertyValue({ type: "date", date: dateObj }), { date: dateObj });
+  });
+
+  it("preserves rich text formatting in title/rich_text", () => {
+    const rt = [
+      {
+        type: "text",
+        text: { content: "bold" },
+        annotations: {
+          bold: true,
+          italic: false,
+          strikethrough: false,
+          underline: false,
+          code: false,
+          color: "default",
+        },
+      },
+    ];
+    assert.ok(clonePropertyValue({ type: "title", title: rt }).title[0].annotations.bold);
+  });
+
+  it("returns undefined for unsupported types", () => {
+    for (const type of ["formula", "rollup", "relation", "files", "created_time", "unique_id"]) {
+      assert.equal(clonePropertyValue({ type, [type]: {} }), undefined, `${type} should return undefined`);
+    }
+    assert.equal(clonePropertyValue(null), undefined);
+  });
+});
+
+describe("_clonePageIcon", () => {
+  it("passes through emoji, external, and named icon types", () => {
+    assert.deepEqual(_clonePageIcon({ type: "emoji", emoji: "🎯" }), { type: "emoji", emoji: "🎯" });
+    assert.deepEqual(
+      _clonePageIcon({ type: "external", external: { url: "https://example.com/icon.png" } }).type,
+      "external",
+    );
+    assert.deepEqual(
+      _clonePageIcon({ type: "icon", icon: { name: "book-closed", color: "blue" } }).icon.name,
+      "book-closed",
+    );
+  });
+
+  it("returns undefined for Notion-hosted file icons", () => {
+    assert.equal(_clonePageIcon({ type: "file", file: { url: "https://prod-files-secure.s3..." } }), undefined);
+  });
+
+  it("returns undefined for null/undefined", () => {
+    assert.equal(_clonePageIcon(null), undefined);
+    assert.equal(_clonePageIcon(undefined), undefined);
+  });
+});
+
+describe("_clonePageCover", () => {
+  it("passes through external covers", () => {
+    assert.deepEqual(
+      _clonePageCover({ type: "external", external: { url: "https://example.com/cover.png" } }).type,
+      "external",
+    );
+  });
+
+  it("returns undefined for Notion-hosted file covers", () => {
+    assert.equal(_clonePageCover({ type: "file", file: { url: "https://prod-files-secure.s3..." } }), undefined);
+  });
+});
+
+// ── _splitDeepChildren ──────────────────────────────────────────────────────
+
+function makeListBlock(type, text, children) {
+  const block = { object: "block", type, [type]: { rich_text: [{ type: "text", text: { content: text } }] } };
+  if (children?.length) block[type].children = children;
+  return block;
+}
+
+describe("_splitDeepChildren", () => {
+  it("returns empty deferred for <=2 levels", () => {
+    const blocks = [makeListBlock("bulleted_list_item", "L1", [makeListBlock("bulleted_list_item", "L2")])];
+    const { deferred } = _splitDeepChildren(blocks, 2);
+    assert.equal(deferred.length, 0);
+  });
+
+  it("strips level-3 children into deferred", () => {
+    const blocks = [
+      makeListBlock("bulleted_list_item", "L1", [
+        makeListBlock("bulleted_list_item", "L2", [makeListBlock("bulleted_list_item", "L3")]),
+      ]),
+    ];
+    const { truncated, deferred } = _splitDeepChildren(blocks, 2);
+    assert.equal(deferred.length, 1);
+    assert.equal(deferred[0].topIndex, 0);
+    assert.equal(deferred[0].childIndex, 0);
+    assert.equal(truncated[0].bulleted_list_item.children[0].bulleted_list_item.children, undefined);
+  });
+
+  it("handles 4+ level nesting", () => {
+    const blocks = [
+      makeListBlock("bulleted_list_item", "L1", [
+        makeListBlock("bulleted_list_item", "L2", [
+          makeListBlock("bulleted_list_item", "L3", [makeListBlock("bulleted_list_item", "L4")]),
+        ]),
+      ]),
+    ];
+    const { deferred } = _splitDeepChildren(blocks, 2);
+    assert.ok(deferred[0].children[0].bulleted_list_item.children);
+  });
+
+  it("does not mutate original blocks", () => {
+    const inner = makeListBlock("bulleted_list_item", "L3");
+    const blocks = [makeListBlock("bulleted_list_item", "L1", [makeListBlock("bulleted_list_item", "L2", [inner])])];
+    _splitDeepChildren(blocks, 2);
+    assert.ok(blocks[0].bulleted_list_item.children[0].bulleted_list_item.children);
   });
 });
