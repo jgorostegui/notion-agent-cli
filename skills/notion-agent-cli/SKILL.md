@@ -10,7 +10,7 @@ description: >-
   "check for stale pages", or "show workspace overview".
   DO NOT TRIGGER for general web scraping, non-Notion APIs, or discussion about
   this plugin's implementation, source code, or repository internals.
-version: 0.4.0
+version: 0.5.0
 allowed-tools: "Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs:*)"
 ---
 

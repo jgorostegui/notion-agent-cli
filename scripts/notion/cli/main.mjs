@@ -147,15 +147,11 @@ function handleSchema(args) {
       console.log(JSON.stringify(meta, null, 2));
     } else {
       const sig = formatSignature(meta.name, meta);
-      const lines = [
-        `## ${meta.name}`,
-        "",
-        meta.summary,
-        "",
-        `Signature: ${sig}`,
-      ];
+      const lines = [`## ${meta.name}`, "", meta.summary, "", `Signature: ${sig}`];
       if (meta.aliases.length > 0) lines.push(`Aliases: ${meta.aliases.join(", ")}`);
-      lines.push(`Category: ${meta.category} | Mutates: ${meta.mutates ? "yes" : "no"} | Risk: ${meta.risk} | Cost: ${meta.costClass}`);
+      lines.push(
+        `Category: ${meta.category} | Mutates: ${meta.mutates ? "yes" : "no"} | Risk: ${meta.risk} | Cost: ${meta.costClass}`,
+      );
       if (meta.preferredFor.length > 0) {
         lines.push("", `Preferred for: ${meta.preferredFor.join(", ")}`);
       }

@@ -4,13 +4,13 @@
 export { NotionActions } from "./actions/NotionActions.mjs";
 // CLI registry
 export {
-	ACTION_CATALOG,
-	ACTIONS,
-	ACTION_ALIASES,
-	getActionCatalog,
-	getActionMeta,
-	resolveAction,
-	toCamelCase,
+  ACTION_ALIASES,
+  ACTION_CATALOG,
+  ACTIONS,
+  getActionCatalog,
+  getActionMeta,
+  resolveAction,
+  toCamelCase,
 } from "./cli/registry.mjs";
 // Converters: blocks
 export {
