@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { NotionActions } from "../actions/NotionActions.mjs";
 import { extractPropertyValue } from "../helpers/properties.mjs";
-import { ACTIONS, resolveAction, toCamelCase } from "./registry.mjs";
+import { ACTION_CATALOG, ACTIONS, getActionMeta, resolveAction, toCamelCase } from "./registry.mjs";
 
 /** Map short/natural flag names to the actual arg/option names used by actions */
 const FLAG_ALIASES = {
@@ -103,62 +103,120 @@ function formatQueryResults(entries) {
   return lines.join("\n");
 }
 
+// ── Meta commands (schema, help) — no token needed ────────────────────
+
+const CATEGORY_LABELS = [
+  ["read", "Read Actions"],
+  ["write", "Write Actions"],
+  ["structural", "Structural Actions"],
+  ["batch", "Batch Actions"],
+  ["safety", "Safety Actions"],
+  ["analysis", "Analysis Actions"],
+];
+
+function formatSignature(name, meta) {
+  const args = meta.args.map((a) => (a.required !== false ? `<${a.name}>` : `[${a.name}]`));
+  const opts = meta.options.map((o) => `[--${o.name}]`);
+  return `${name} ${[...args, ...opts].join(" ")}`.trim();
+}
+
+function handleSchema(args) {
+  // Parse --format from args (can appear anywhere)
+  let format = "markdown";
+  const positional = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--format" && args[i + 1]) {
+      format = args[i + 1];
+      i++;
+    } else if (!args[i].startsWith("--")) {
+      positional.push(args[i]);
+    }
+  }
+
+  const actionName = positional[0] ? resolveAction(positional[0]) : null;
+
+  if (actionName) {
+    // Single-action schema
+    const meta = getActionMeta(actionName);
+    if (!meta) {
+      console.error(`Unknown action: ${positional[0]}. Run 'schema' to see all actions.`);
+      process.exit(1);
+    }
+
+    if (format === "json") {
+      console.log(JSON.stringify(meta, null, 2));
+    } else {
+      const sig = formatSignature(meta.name, meta);
+      const lines = [
+        `## ${meta.name}`,
+        "",
+        meta.summary,
+        "",
+        `Signature: ${sig}`,
+      ];
+      if (meta.aliases.length > 0) lines.push(`Aliases: ${meta.aliases.join(", ")}`);
+      lines.push(`Category: ${meta.category} | Mutates: ${meta.mutates ? "yes" : "no"} | Risk: ${meta.risk} | Cost: ${meta.costClass}`);
+      if (meta.preferredFor.length > 0) {
+        lines.push("", `Preferred for: ${meta.preferredFor.join(", ")}`);
+      }
+      if (meta.preferInstead.length > 0) {
+        lines.push(`Instead of ${meta.name}, consider:`);
+        for (const p of meta.preferInstead) {
+          lines.push(`  - ${p.action} — ${p.intent}${p.reason ? ` (${p.reason})` : ""}`);
+        }
+      }
+      if (meta.skill.gotchas.length > 0) {
+        lines.push("", "Gotchas:");
+        for (const g of meta.skill.gotchas) lines.push(`  - ${g}`);
+      }
+      lines.push("", "### Examples", "");
+      for (const ex of meta.examples) lines.push(`  ${ex}`);
+      console.log(lines.join("\n"));
+    }
+  } else {
+    // All-actions schema
+    if (format === "json") {
+      console.log(JSON.stringify(ACTION_CATALOG, null, 2));
+    } else {
+      const lines = [];
+      for (const [cat, label] of CATEGORY_LABELS) {
+        const entries = Object.entries(ACTION_CATALOG).filter(([, m]) => m.category === cat);
+        if (entries.length === 0) continue;
+        lines.push(`## ${label}`, "");
+        lines.push("| Action | Signature | Description |");
+        lines.push("|---|---|---|");
+        for (const [name, meta] of entries) {
+          const sig = formatSignature(name, meta);
+          lines.push(`| ${name} | ${sig} | ${meta.summary} |`);
+        }
+        lines.push("");
+      }
+      console.log(lines.join("\n"));
+    }
+  }
+}
+
+function handleActionHelp(name) {
+  const meta = getActionMeta(resolveAction(name));
+  if (!meta) {
+    console.error(`Unknown action: ${name}. Run --help to see available actions.`);
+    process.exit(1);
+  }
+  const sig = formatSignature(meta.name, meta);
+  const lines = [sig, "", `  ${meta.summary}`];
+  if (meta.aliases.length > 0) lines.push(`  Aliases: ${meta.aliases.join(", ")}`);
+  if (meta.examples.length > 0) {
+    lines.push("", "  Examples:");
+    for (const ex of meta.examples) lines.push(`    ${ex}`);
+  }
+  console.log(lines.join("\n"));
+}
+
 function printHelp() {
-  const desc = {
-    search: "Search workspace pages/databases",
-    getPage: "Get page content as markdown",
-    getDatabase: "Get database schema + all entries",
-    queryDatabase: "Query database (markdown table; --format raw for JSON)",
-    getTree: "Hierarchical page/database tree",
-    exportPage: "Save page as markdown file",
-    exportDatabase: "Export as CSV or JSON",
-    getComments: "All comments on a page",
-    getUsers: "All workspace users",
-    createPage: "Create page from markdown",
-    updatePage: "Replace all content (auto-snapshots)",
-    appendBlocks: "Append markdown to end of page",
-    insertBlocks: "Insert blocks at position",
-    setProperties: "Update page/entry properties (auto-typed)",
-    addComment: "Add comment to page",
-    lockPage: "Lock page",
-    unlockPage: "Unlock page",
-    createDatabase: "Create database with schema",
-    addDatabaseEntry: "Add row with auto-typed properties",
-    importTable: "Create database from markdown table (infers types)",
-    moveBlocks: "Move blocks between pages with rollback",
-    movePage: "Move page (deep copy + archive)",
-    reorderBlocks: "Reorder blocks by ID array",
-    deepCopy: "Full recursive page copy",
-    copyPageWith: "Read + modify + create in one call",
-    mergePages: "Combine multiple pages into one",
-    splitPage: "Split page at headings into subpages",
-    extractSection: "Get one section's markdown",
-    replaceSection: "Replace section content (auto-snapshots)",
-    flattenPage: "Inline subpages into parent",
-    nestUnderHeadings: "Convert sections to subpages",
-    duplicateStructure: "Copy hierarchy (empty pages)",
-    applyTemplate: "Template with {{placeholders}}",
-    batchSetProperties: "Update properties on multiple pages",
-    batchArchive: "Archive multiple pages",
-    batchTag: "Tag pages with select value",
-    snapshot: "In-memory snapshot (max 20)",
-    restore: "Restore from snapshot",
-    backupPage: "Recursive backup to disk",
-    backupDatabase: "Export schema + entries to disk",
-    transact: "Multi-op with rollback",
-    workspaceMap: "All pages and databases",
-    pageStats: "Block count, depth, word count",
-    diffPages: "Line-level page comparison",
-    findDuplicates: "Pages with same title",
-    findOrphans: "Root-level pages",
-    findEmpty: "Pages with no content",
-    findStale: "Pages not edited in N days",
-    suggestReorganization: "Structure improvement suggestions",
-  };
   const lines = ["Usage: node actions.mjs <action> [args...]\n"];
-  for (const [name, spec] of Object.entries(ACTIONS)) {
-    const sig = [...spec.args.map((a) => `<${a}>`), ...spec.options.map((o) => `[--${o}]`)].join(" ");
-    lines.push(`  ${name.padEnd(24)} ${sig.padEnd(44)} ${desc[name] || ""}`);
+  for (const [name, meta] of Object.entries(ACTION_CATALOG)) {
+    const sig = [...meta.args.map((a) => `<${a.name}>`), ...meta.options.map((o) => `[--${o.name}]`)].join(" ");
+    lines.push(`  ${name.padEnd(24)} ${sig.padEnd(44)} ${meta.summary}`);
   }
   lines.push("");
   lines.push("queryDatabase returns markdown by default. Use --format raw for JSON.");
@@ -166,11 +224,30 @@ function printHelp() {
   console.log(lines.join("\n"));
 }
 
+// ── Main CLI dispatcher ───────────────────────────────────────────────
+
 export async function main() {
   const arg = process.argv[2];
-  if (!arg || arg === "--help" || arg === "-h" || arg === "help") {
+
+  // General help: no args, --help, -h
+  if (!arg || arg === "--help" || arg === "-h") {
     printHelp();
     process.exit(arg ? 0 : 1);
+  }
+
+  // Meta commands — no token needed
+  if (arg === "schema") {
+    handleSchema(process.argv.slice(3));
+    process.exit(0);
+  }
+  if (arg === "help") {
+    const target = process.argv[3];
+    if (target && !target.startsWith("-")) {
+      handleActionHelp(target);
+    } else {
+      printHelp();
+    }
+    process.exit(0);
   }
 
   const na = new NotionActions();

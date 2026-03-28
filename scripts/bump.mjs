@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const files = [join(root, "package.json"), join(root, ".claude-plugin", "plugin.json")];
+const skillPath = join(root, "skills", "notion-agent-cli", "SKILL.md");
 
 const args = process.argv.slice(2);
 const noTag = args.includes("--no-tag");
@@ -43,9 +44,16 @@ for (const file of files) {
   await writeFile(file, `${JSON.stringify(json, null, 2)}\n`);
 }
 
+// Update SKILL.md frontmatter version if present
+const skillContent = await readFile(skillPath, "utf-8");
+const updatedSkill = skillContent.replace(/^version:\s*.+$/m, `version: ${newVersion}`);
+if (updatedSkill !== skillContent) {
+  await writeFile(skillPath, updatedSkill);
+}
+
 const run = (cmd) => execSync(cmd, { cwd: root, stdio: "inherit" });
 
-run(`git add package.json .claude-plugin/plugin.json`);
+run(`git add package.json .claude-plugin/plugin.json skills/notion-agent-cli/SKILL.md`);
 run(`git commit -m "v${newVersion}"`);
 
 if (!noTag) {

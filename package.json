@@ -13,6 +13,8 @@
     "lint:fix": "biome check --fix",
     "format": "biome format --write",
     "bench": "uv run --project benchmark benchmark/run.py all",
+    "generate-docs": "node scripts/notion/docs/generate-skill-docs.mjs",
+    "check-docs": "node scripts/notion/docs/generate-skill-docs.mjs --check",
     "bump": "node scripts/bump.mjs"
   },
   "dependencies": {

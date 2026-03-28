@@ -1,109 +1,107 @@
+<!-- Generated from ACTION_CATALOG — do not edit manually -->
+<!-- Run: node scripts/notion/docs/generate-skill-docs.mjs -->
+
 # Notion Agent CLI — Compound Workflow Recipes
 
 Prefer compound actions over multi-step workflows. Each recipe below shows the single-call approach.
 
-## Copy a Page with Modifications
+## Query Database and Create Report
 
-Use `copyPageWith` to read a source page and create a modified copy in one call.
-
-```bash
-# Copy page and append a new section
-node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs copyPageWith <sourcePageId> <targetParentId> "New Title" '{"appendMd": "## Notes\nAdded by automation."}'
-
-# Copy page and prepend content
-node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs copyPageWith <sourcePageId> <targetParentId> "New Title" '{"prependMd": "## Important\nThis is a copy."}'
-```
-
-Equivalent to: `getPage` → process content → `createPage` — but in 1 CLI call instead of 3.
-
-## Merge Multiple Pages
-
-Use `mergePages` to combine N pages into one target page. The target page must already exist — use `createPage` first to create it.
+Use `queryDatabase` to query database (markdown table; --format raw for json).
 
 ```bash
-# Step 1: Create the target page
-node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs createPage <parentId> "Merged Report" ""
-
-# Step 2: Merge source pages into the target (each source appended with H1 demoted to H2)
-node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs mergePages '["pageId1","pageId2","pageId3"]' <targetPageId> '{"archiveSources": true}'
+node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs queryDatabase abc123
+node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs queryDatabase abc123 --filter '{"property":"Status","select":{"equals":"Done"}}'
 ```
 
-This is a 2-step workflow: `createPage` -> `mergePages`. The merge reads each source and appends its content to the target.
+Returns compact markdown table with row IDs. Use --format raw for full JSON.
 
-Equivalent to: N × `getPage` + N × `appendBlocks` — but in 2 calls instead of 2N.
+> **Note**: Returns markdown table by default, use --format raw for JSON
 
-## Batch Update Properties
+## Move Blocks Between Pages
 
-Use `batchSetProperties` to update the same properties on multiple pages/entries at once.
+Use `moveBlocks` to move blocks between pages with rollback.
 
 ```bash
-# Set Status on 3 entries
-node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs batchSetProperties '["entryId1","entryId2","entryId3"]' '{"Status": "Done"}'
+node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs moveBlocks srcId targetId '["blockId1","blockId2"]'
 ```
-
-Equivalent to: N × `setProperties` — but in 1 call.
-
-## Replace a Section
-
-Use `replaceSection` to surgically replace one section's content without touching the rest of the page.
-
-```bash
-# Replace the "Overview" section
-node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs replaceSection <pageId> "Overview" "New overview content with **formatting**."
-```
-
-Auto-snapshots before modifying. Equivalent to: `getPage` → find section → `delete blocks` → `insertBlocks` — but in 1 call.
 
 ## Full Recursive Copy
 
-Use `deepCopy` to copy a page and all its subpages recursively.
+Use `deepCopy` to full recursive page copy.
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs deepCopy <sourcePageId> <targetParentId>
+node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs deepCopy srcPageId targetParentId
 ```
 
 Preserves the full page tree structure. Title is copied from the source.
 
+> **Note**: Use copyPageWith instead if you need to modify the copy
+
+## Copy a Page with Modifications
+
+Use `copyPageWith` to read + modify + create in one call.
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs copyPageWith srcId parentId "New Title" --appendMd "## Notes\nAdded by automation."
+node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs copyPageWith srcId parentId "New Title" --prependMd "## Important\nThis is a copy."
+```
+
+Equivalent to: getPage + createPage (2 calls) — but in 1 CLI call.
+
+## Merge Multiple Pages
+
+Use `mergePages` to combine multiple pages into one.
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs mergePages '["pageId1","pageId2","pageId3"]' targetId '{"archiveSources": true}'
+```
+
+Equivalent to: N x getPage + N x appendBlocks (2N calls) — but in 1 CLI call.
+
+Target must already exist — use createPage first.
+
+> **Note**: Target page must already exist — use createPage first
+
 ## Split Page into Subpages
 
-Use `splitPage` to break a page into subpages at heading boundaries.
+Use `splitPage` to split page at headings into subpages.
 
 ```bash
-# Split at H2 boundaries, create subpages under the same page
-node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs splitPage <pageId> '{"headingLevel": 2, "createUnderSamePage": true}'
+node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs splitPage abc123 '{"headingLevel": 2, "createUnderSamePage": true}'
 ```
 
-## Move Blocks Between Pages
+## Replace a Section
 
-Use `moveBlocks` to transfer specific blocks from one page to another with automatic rollback on failure.
+Use `replaceSection` to replace section content (auto-snapshots).
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs moveBlocks <sourcePageId> <targetPageId> '["blockId1","blockId2"]'
+node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs replaceSection abc123 "Overview" "New overview content with **formatting**."
 ```
+
+Equivalent to: getPage + find section + delete blocks + insertBlocks (4 calls) — but in 1 CLI call.
+
+Auto-snapshots before modifying.
 
 ## Template with Variable Substitution
 
-Use `applyTemplate` to copy a template page and replace `{{placeholders}}` with values.
+Use `applyTemplate` to template with {{placeholders}}.
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs applyTemplate <templatePageId> <targetParentId> '{"name": "Acme Corp", "date": "2026-03-05"}'
+node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs applyTemplate templateId parentId '{"name":"Acme Corp","date":"2026-03-05"}'
 ```
 
-## Query Database and Create Report
+Equivalent to: deepCopy + manual find-replace — but in 1 CLI call.
 
-Use `queryDatabase` to get all rows in one call, then `createPage` with the formatted results.
+## Batch Update Properties
+
+Use `batchSetProperties` to update properties on multiple pages.
 
 ```bash
-# Step 1: Get all entries (returns compact markdown table with row IDs)
-node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs queryDatabase <dbId>
-
-# Step 2: Create report page with formatted content
-node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs createPage <parentId> "Report" "## Entries\n- Entry 1\n- Entry 2"
+node ${CLAUDE_PLUGIN_ROOT}/scripts/actions.mjs batchSetProperties '["id1","id2","id3"]' '{"Status":"Done"}'
 ```
 
-`queryDatabase` returns all rows as a compact markdown table with row IDs — no need
-to fetch each row individually. The table shows up to 8 property columns; use
-`--format raw` if you need the full JSON for programmatic use or to see all columns.
+Equivalent to: N x setProperties (N calls) — but in 1 CLI call.
 
 ## Large Content via Stdin
 
