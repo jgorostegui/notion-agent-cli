@@ -12,7 +12,7 @@ That sounds simple, but most of the repository follows directly from those three
 
 ## What This Project Is
 
-`notion-agent-cli` is a Claude Code plugin backed by a single CLI entry point, [`scripts/actions.mjs`](scripts/actions.mjs). The CLI exposes 47 Notion actions, ranging from plain reads like `getPage` to workflow-style actions like `copyPageWith`, `mergePages`, and `batchSetProperties`.
+`notion-agent-cli` is a Claude Code plugin backed by a single CLI entry point, [`scripts/actions.mjs`](scripts/actions.mjs). The CLI exposes the actions, ranging from plain reads like `getPage` to workflow-style actions like `copyPageWith`, `mergePages`, and `batchSetProperties`.
 
 The project is not trying to model the full Notion API one-to-one. It is trying to give an LLM a narrower and more useful surface for the kinds of document and workspace work that are common in agent sessions.
 
@@ -84,32 +84,18 @@ This is one of the stronger parts of the repository because it keeps the always-
 
 It also matters for the benchmark. The evaluation uses prompt-injected skill content to equalize tool knowledge with MCP. That isolates the interface cost from the discovery cost.
 
-## The Main Runtime File
+## The Module Tree
 
-Nearly all runtime behavior lives in [`scripts/actions.mjs`](scripts/actions.mjs).
+Since v0.4.0, runtime behavior is split across `scripts/notion/` into four layers:
 
-That file has four practical responsibilities:
+- `converters/` for markdown/block/table conversions (pure functions)
+- `helpers/` for property extraction, ID normalization, and clone utilities
+- `actions/` for the `NotionActions` class, assembled from method-bag modules
+- `cli/` for the action registry, argv parsing, output formatting, and the `main()` dispatcher
 
-- build and configure the Notion client
-- convert between markdown and Notion blocks
-- implement the action methods
-- parse CLI input and dispatch to the right method
+[`scripts/actions.mjs`](scripts/actions.mjs) remains as the CLI entry point and the import surface for tests and benchmarks. It re-exports the curated public API from `scripts/notion/index.mjs` without adding side effects.
 
-This is a very centralized design. It is not the most elegant module layout, but it is deliberate.
-
-The advantages are:
-
-- packaging is simple
-- the execution surface is easy to inspect
-- there is one obvious place to understand behavior
-
-The costs are also real:
-
-- the file is large
-- cross-action coupling is easier to create accidentally
-- API migrations are harder to isolate
-
-So the current design is best understood as a packaging-first architecture rather than a textbook layered codebase.
+The split improved isolation between layers, but the action class is still assembled by mixing in method-bag modules, so cross-action dependencies can still appear.
 
 ## The Dispatcher
 
@@ -259,9 +245,7 @@ The runner under `benchmark/` does four important things:
 - stores full transcripts and summaries
 - runs contamination and behavior analysis after the sessions
 
-The harness is strongest as an audit trail. It is weaker as a correctness gate, because the scenario validator is not yet wired into the default path.
-
-That limitation should be treated as part of the architecture story, not hidden from it.
+The harness serves as both an audit trail and a correctness gate. Validation runs automatically after each session, and the results feed into the summary and analysis pipeline.
 
 ## Where This Design Is Strong
 
@@ -277,9 +261,9 @@ The current architecture is strongest in five places:
 
 It is also worth being explicit about the weak points.
 
-### Single-file concentration
+### Module tree
 
-Most runtime behavior lives in one large file. That makes shipping simple, but maintenance harder.
+The v0.4.0 split moved runtime behavior from one large file into `scripts/notion/` with separate layers for converters, helpers, actions, and CLI dispatch. `scripts/actions.mjs` remains as the CLI entry point and import surface. The split reduced coupling, but the action class is still assembled from method-bag modules, so cross-action dependencies can still appear.
 
 ### API churn
 
@@ -304,7 +288,13 @@ notion-agent-cli/
 │   └── check-setup.sh
 ├── scripts/
 │   ├── actions.mjs
-│   └── setup.mjs
+│   ├── setup.mjs
+│   └── notion/
+│       ├── index.mjs
+│       ├── converters/
+│       ├── helpers/
+│       ├── actions/
+│       └── cli/
 ├── skills/
 │   └── notion-agent-cli/
 │       ├── SKILL.md

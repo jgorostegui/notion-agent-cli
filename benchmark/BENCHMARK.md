@@ -65,7 +65,7 @@ For S10, the model must infer column types from the data. The expected types are
 
 ## Validation
 
-`validate-session.mjs` checks correctness for each scenario after the session completes. It uses the CLI to read back the created artifacts from Notion.
+`validate-session.mjs` checks correctness for each scenario after the session completes. It uses `NotionActions` directly (no CLI subprocesses) to read back the created artifacts from Notion.
 
 | S | Checks |
 |---|---|
@@ -82,11 +82,7 @@ For S10, the model must infer column types from the data. The expected types are
 
 S1-S8 validation is lightweight (existence + structural shape). S9-S10 validation is richer: it checks row/column counts, header names, data integrity through spot-checks, and (for S10) verifies that typed property values survived the database creation pipeline.
 
-The runner does **not** yet invoke the validator automatically. Run it manually:
-
-```bash
-node benchmark/validate-session.mjs "<marker>" <scenario>
-```
+The runner invokes `validate-session.mjs` automatically after each session. Results are stored in `validation.json` per run, and merged into `summary.json`.
 
 ## Isolation
 
@@ -214,9 +210,12 @@ For every session, the runner:
 
 After the run, it:
 
+- validates session correctness with `validate-session.mjs`
 - checks tool-channel contamination
 - runs behavior analysis on NAC sessions
 - prints a comparison table when using the `all` subcommand
+
+Pipeline: `run.py` -> `validate-session.mjs` -> `analyze-behavior.mjs` -> `summary.json` -> `analysis.ipynb`
 
 ## Output Layout
 
@@ -230,6 +229,7 @@ Results land in `benchmark/results/<run-id>/`:
 ├── mcp-s1-1.json
 ├── mcp-s1-1.jsonl
 ├── ...
+├── validation.json
 └── behavior.json
 ```
 
@@ -238,6 +238,7 @@ File meanings:
 - `env.json`: model, fixture IDs, CLI version, plugin state
 - `*.json`: Claude session summary with turns and cost
 - `*.jsonl`: full transcript
+- `validation.json`: per-session correctness results from `validate-session.mjs`
 - `behavior.json`: NAC behavior analysis, including workflow adherence
 
 For charts and further analysis, open `benchmark/analysis.ipynb`.

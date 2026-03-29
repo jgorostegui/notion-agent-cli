@@ -177,7 +177,7 @@ def _fixture_reset() -> None:
     try:
         subprocess.run(
             ["node", str(SCRIPT_DIR / "fixture-reset.mjs")],
-            check=True, timeout=60,
+            check=True, timeout=120,
             capture_output=True,
         )
     except Exception as e:
@@ -651,6 +651,202 @@ def _parse_scenarios(spec: str) -> list[int]:
     return sorted(result)
 
 
+# ── Summary JSON generation ─────────────────────────────────────────────────
+
+def _parse_turn_tokens(jsonl_path: Path) -> list[dict]:
+    """Extract per-turn token data from a session JSONL file.
+
+    Claude Code emits multiple assistant JSONL lines per logical turn
+    (thinking, tool_use, text).  We group them by input-token signature:
+    when (input, cache_read, cache_creation) changes we start a new turn,
+    otherwise we accumulate output tokens into the current turn.
+    """
+    turns: list[dict] = []
+    if not jsonl_path.exists():
+        return turns
+    prev_sig: tuple[int, ...] | None = None
+    try:
+        for line in jsonl_path.read_text().splitlines():
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if entry.get("type") != "assistant":
+                continue
+            usage = (entry.get("message") or {}).get("usage")
+            if not usage:
+                continue
+            inp = usage.get("input_tokens", 0)
+            cr = usage.get("cache_read_input_tokens", 0)
+            cc = usage.get("cache_creation_input_tokens", 0)
+            out = usage.get("output_tokens", 0)
+            sig = (inp, cr, cc)
+            if sig != prev_sig:
+                # New logical turn
+                turns.append({
+                    "turn": len(turns) + 1,
+                    "input": inp,
+                    "cache_read": cr,
+                    "cache_create": cc,
+                    "output": out,
+                    "billed": inp + cc,
+                })
+                prev_sig = sig
+            else:
+                # Same turn, accumulate output
+                if turns:
+                    turns[-1]["output"] += out
+    except OSError:
+        pass
+    return turns
+
+
+def _write_summary_json(results_dir: Path) -> None:
+    """Merge all session data into a single summary.json."""
+    # Load env metadata
+    env_data = {}
+    env_file = results_dir / "env.json"
+    if env_file.exists():
+        try:
+            env_data = json.loads(env_file.read_text())
+        except Exception:
+            pass
+
+    # Load validation results
+    validation = {}
+    vfile = results_dir / "validation.json"
+    if vfile.exists():
+        try:
+            validation = json.loads(vfile.read_text())
+        except Exception:
+            pass
+
+    # Load behavior analysis (index by label)
+    behavior_by_label: dict[str, dict] = {}
+    bfile = results_dir / "behavior.json"
+    if bfile.exists():
+        try:
+            bdata = json.loads(bfile.read_text())
+            for s in bdata.get("sessions", []):
+                behavior_by_label[s["label"]] = s
+        except Exception:
+            pass
+
+    # Collect session files
+    skip = {"env.json", "behavior.json", "validation.json", "summary.json"}
+    session_files = sorted(
+        f for f in results_dir.glob("*.json")
+        if f.name not in skip and (f.stem.startswith("nac-") or f.stem.startswith("mcp-"))
+    )
+
+    sessions = []
+    for sf in session_files:
+        label = sf.stem
+        parts = label.split("-")
+        if len(parts) < 3:
+            continue
+        condition = parts[0]
+        try:
+            scenario_num = int(parts[1][1:])
+            iteration = int(parts[2])
+        except (ValueError, IndexError):
+            continue
+
+        try:
+            data = json.loads(sf.read_text())
+        except Exception:
+            continue
+
+        usage = data.get("usage", {})
+        num_turns = data.get("num_turns", 0)
+        cost_usd = data.get("total_cost_usd", 0.0)
+        duration_ms = data.get("duration_ms", 0)
+
+        # Token totals from session JSON
+        input_tokens = usage.get("input_tokens", 0)
+        cache_read = usage.get("cache_read_input_tokens", 0)
+        cache_creation = usage.get("cache_creation_input_tokens", 0)
+        output_tokens = usage.get("output_tokens", 0)
+
+        # Per-turn tokens from JSONL
+        jsonl_path = sf.with_suffix(".jsonl")
+        turn_tokens = _parse_turn_tokens(jsonl_path)
+
+        # Contamination check
+        contaminated = not _check_contamination(jsonl_path, condition)
+
+        # Validation
+        v = validation.get(label, {})
+        valid = v.get("valid")
+        validation_reason = v.get("reason")
+        validation_details = {k: val for k, val in v.items() if k not in ("valid", "reason")}
+
+        # Behavior (NAC only)
+        beh = behavior_by_label.get(label, {})
+        if condition == "nac" and beh:
+            workflow_match = beh.get("intended_workflow_match", False)
+            first_useful_turn = beh.get("first_useful_turn")
+            schema_used = beh.get("used_schema", beh.get("used_help", False))
+            source_inspection = beh.get("used_source_inspection", False)
+            action_sequence = beh.get("action_sequence", [])
+            mismatch_reason = beh.get("mismatch_reason")
+            skill_triggered = beh.get("skill_triggered", False)
+            intended_raw = beh.get("intended_workflow")
+            intended_workflow = (
+                intended_raw.split(" -> ") if isinstance(intended_raw, str)
+                else intended_raw or []
+            )
+        else:
+            workflow_match = None
+            first_useful_turn = None
+            schema_used = None
+            source_inspection = None
+            action_sequence = []
+            mismatch_reason = None
+            skill_triggered = None
+            intended_workflow = []
+
+        sessions.append({
+            "label": label,
+            "condition": condition,
+            "scenario_num": scenario_num,
+            "iteration": iteration,
+            "num_turns": num_turns,
+            "cost_usd": cost_usd,
+            "duration_ms": duration_ms,
+            "input_tokens": input_tokens,
+            "cache_read_tokens": cache_read,
+            "cache_creation_tokens": cache_creation,
+            "output_tokens": output_tokens,
+            "turn_tokens": turn_tokens,
+            "valid": valid,
+            "validation_reason": validation_reason,
+            "contaminated": contaminated,
+            "workflow_match": workflow_match,
+            "first_useful_turn": first_useful_turn,
+            "schema_used": schema_used,
+            "source_inspection": source_inspection,
+            "action_sequence": action_sequence,
+            "mismatch_reason": mismatch_reason,
+            "skill_triggered": skill_triggered,
+            "intended_workflow": intended_workflow,
+            "validation_details": validation_details,
+        })
+
+    summary = {
+        "format_version": 1,
+        "run_id": env_data.get("run_id", results_dir.name),
+        "model": env_data.get("model", "unknown"),
+        "cli_version": env_data.get("claude_cli_version", "unknown"),
+        "git_commit": env_data.get("git_commit", "unknown"),
+        "sessions": sessions,
+    }
+    (results_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    typer.echo(f"  Summary: {results_dir / 'summary.json'}")
+
+
 # ── CLI Commands ─────────────────────────────────────────────────────────────
 
 def _prepare_run(
@@ -660,7 +856,7 @@ def _prepare_run(
     _load_env()
     _verify_bench_envs()
 
-    scens = _parse_scenarios(scenarios) or list(range(1, 9))
+    scens = _parse_scenarios(scenarios) or list(range(1, 11))
     rid = run_id[0] if run_id else datetime.now().strftime("%Y%m%d-%H%M%S")
     results_dir = RESULTS_BASE / rid
 
@@ -722,6 +918,8 @@ def _run_benchmark(
     if len(modes) > 1:
         groups = {m: _load_summaries(results_dir, m) for m in modes}
         _print_comparison_table(groups)
+
+    _write_summary_json(results_dir)
 
     if cleanup:
         _artifact_cleanup(rid)

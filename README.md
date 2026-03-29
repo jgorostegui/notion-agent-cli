@@ -100,18 +100,9 @@ node scripts/actions.mjs batchSetProperties '["id1","id2","id3"]' '{"Status":"Do
 
 ## Benchmark Snapshot
 
-The repository includes a controlled benchmark comparing Notion Agent CLI (NAC) with the official Notion MCP interface across 8 scenarios and 2 Claude models.
+The repository includes a controlled benchmark comparing Notion Agent CLI with the official Notion MCP interface across 10 scenarios and 2 Claude models (Sonnet 4.6, Opus 4.6). The task-level interface consistently reduced both turn count and session cost, with the largest gains on compound workflows. The interface also provides a self-describing `schema` command so the model can look up exact action signatures without reading source code.
 
-The current public snapshot is the March 16, 2026 comparison, with `n=5` runs per scenario and condition:
-
-| Model | NAC avg turns | MCP avg turns | NAC total cost | MCP total cost | Saving |
-|---|---:|---:|---:|---:|---:|
-| Sonnet 4.6 | 2.5 | 5.9 | $1.74 | $7.17 | 76% |
-| Opus 4.6 | 2.7 | 7.2 | $4.00 | $12.25 | 67% |
-
-The gap is small on simple tasks and large on compound ones. The strongest savings show up when the model would otherwise have to fetch, transform, and write content over several turns. One notable exception remains: on Opus 4.6, the `Copy+Modify` scenario was effectively tied.
-
-This benchmark is best read as interface-level evidence, not as a universal claim about all Notion work. The CLI condition uses prompt-injected skill content to equalize tool knowledge, and the benchmark runner still needs tighter automated correctness validation. The full report, including per-scenario tables, run IDs, and limitations, is in [EVALUATION.md](EVALUATION.md).
+For per-scenario numbers, confidence intervals, and full methodology, see [EVALUATION.md](EVALUATION.md).
 
 ## Project Status
 
@@ -132,7 +123,7 @@ The plugin is usable today and the repository is in decent shape, but it is stil
 
 ## Requirements
 
-- Node.js 18+
+- Node.js 20+
 - A Notion integration token
 - Access to the pages and databases you want the integration to touch
 

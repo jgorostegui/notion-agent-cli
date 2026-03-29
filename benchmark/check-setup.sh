@@ -36,35 +36,27 @@ else
     fail "MCP HOME missing Notion plugin — run: HOME=$MCP_HOME claude, then: /plugin install Notion"
 fi
 
-# Actions HOME should NOT have MCP — it uses --plugin-dir to load notion-agent-cli
-if HOME="$ACTIONS_HOME" claude plugin list 2>/dev/null | grep -qi "notion.*enabled"; then
-    fail "Actions HOME has Notion MCP enabled (contamination risk) — disable it"
+# Actions HOME should NOT have the official Notion MCP plugin (contamination risk)
+if HOME="$ACTIONS_HOME" claude plugin list 2>/dev/null | grep -qi "notion@claude-plugins-official"; then
+    fail "Actions HOME has Notion MCP plugin enabled (contamination risk) — disable it"
 else
-    pass "Actions HOME has no enabled Notion MCP (correct)"
+    pass "Actions HOME has no Notion MCP plugin (correct)"
 fi
 
-# Check notion-agent-cli plugin structure (loaded via --plugin-dir at runtime, not installed)
-if [[ -f "$PROJECT_DIR/.claude-plugin/plugin.json" ]]; then
-    pass "notion-agent-cli plugin.json exists"
+# Actions HOME should have notion-agent-cli installed
+if HOME="$ACTIONS_HOME" claude plugin list 2>/dev/null | grep -q "notion-agent-cli"; then
+    NAC_VER=$(HOME="$ACTIONS_HOME" claude plugin list 2>/dev/null | grep -oP 'Version: \K[0-9.]+' || echo "?")
+    pass "notion-agent-cli installed and enabled (v$NAC_VER)"
 else
-    fail "notion-agent-cli plugin.json missing at $PROJECT_DIR/.claude-plugin/plugin.json"
+    fail "notion-agent-cli not installed in Actions HOME — run: HOME=$ACTIONS_HOME claude plugin marketplace add jgorostegui/notion-agent-cli && claude plugin install notion-agent-cli@notion-agent-cli-marketplace"
 fi
-if [[ -f "$PROJECT_DIR/skills/notion-agent-cli/SKILL.md" ]]; then
-    pass "notion-agent-cli SKILL.md exists"
+
+# Verify CLI loads
+if node "$PROJECT_DIR/scripts/actions.mjs" --help 2>/dev/null | grep -q "createPage"; then
+    pass "notion-agent-cli CLI loads (--help works)"
 else
-    fail "notion-agent-cli SKILL.md missing"
+    fail "notion-agent-cli CLI broken — node scripts/actions.mjs --help failed"
 fi
-if [[ -f "$PROJECT_DIR/scripts/actions.mjs" ]]; then
-    # Quick smoke test: --help should print action list
-    if node "$PROJECT_DIR/scripts/actions.mjs" --help 2>/dev/null | grep -q "createPage"; then
-        pass "notion-agent-cli CLI loads (--help works)"
-    else
-        fail "notion-agent-cli CLI broken — node scripts/actions.mjs --help failed"
-    fi
-else
-    fail "scripts/actions.mjs missing"
-fi
-echo "  ℹ NAC plugin is loaded at runtime via --plugin-dir (not installed in Actions HOME)"
 
 # ── 4. Fixture IDs in .env ────────────────────────────────────────────────────
 echo ""

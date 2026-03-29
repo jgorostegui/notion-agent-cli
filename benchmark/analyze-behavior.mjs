@@ -3,7 +3,8 @@
  * Behavior analysis parser for benchmark JSONL sessions.
  *
  * Extracts per session: skill trigger, first useful turn, discovery overhead,
- * action sequence, help/source usage, intended workflow adherence.
+ * action sequence, help/schema/source usage, intended workflow adherence,
+ * mismatch reason.
  *
  * Usage:
  *   node benchmark/analyze-behavior.mjs --label nac-s3-1 session.jsonl [...]
@@ -95,7 +96,55 @@ function extractScenario(label) {
 function extractActionsFromBashCommand(cmd) {
   // Match: node <path>/actions.mjs <action> ...
   const m = cmd.match(/actions\.mjs\s+(\w+)/);
-  return m ? m[1] : null;
+  if (m && m[1] !== "schema" && m[1] !== "help") return m[1];
+
+  // Stdin mode: echo '{"action":"createPage",...}' | node actions.mjs -
+  if (cmd.includes("actions.mjs -") || cmd.includes("actions.mjs -\n")) {
+    const actionMatch = cmd.match(/"action"\s*:\s*"(\w+)"/);
+    if (actionMatch) return actionMatch[1];
+  }
+
+  return null;
+}
+
+/** Check if a Bash command inspects source files. */
+function isSourceInspectionBash(cmd) {
+  // Skip if the command is a schema/help call
+  if (cmd.match(/actions\.mjs\s+(schema|help)\b/)) return false;
+
+  // Inspect actions.mjs directly
+  if (
+    cmd.match(/cat\s+.*actions\.mjs/) ||
+    cmd.match(/head\s+.*actions\.mjs/) ||
+    cmd.match(/less\s+.*actions\.mjs/) ||
+    cmd.match(/wc\s+.*actions\.mjs/) ||
+    cmd.includes("which notion") ||
+    cmd.includes("type notion") ||
+    cmd.includes("file actions")
+  ) {
+    return true;
+  }
+
+  // Inspect module tree files under scripts/notion/
+  if (
+    cmd.match(/(?:cat|head|less|wc|grep)\s+.*scripts\/notion\//) ||
+    cmd.match(/(?:cat|head|less|wc|grep)\s+.*registry\.mjs/) ||
+    cmd.match(/(?:cat|head|less|wc|grep)\s+.*main\.mjs/)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/** Check if a Read tool path is source inspection. */
+function isSourceInspectionRead(path) {
+  return (
+    path.includes("actions.mjs") ||
+    path.includes("scripts/notion/") ||
+    path.includes("registry.mjs") ||
+    path.includes("main.mjs")
+  );
 }
 
 function analyzeSession(filePath, label) {
@@ -109,7 +158,10 @@ function analyzeSession(filePath, label) {
   let skillTriggered = false;
   let firstUsefulTurn = null;
   let usedHelp = false;
+  let usedSchema = false;
   let usedSourceInspection = false;
+  let sourceInspectionBeforeFirstAction = false;
+  let schemaBeforeFirstAction = false;
   const actionSequence = [];
 
   let turnIndex = 0;
@@ -136,32 +188,36 @@ function analyzeSession(filePath, label) {
           if (block.type === "tool_use" && block.name === "Bash") {
             const cmd = block.input?.command || "";
 
-            // Check for --help usage
+            // Check for --help/--version usage
             if (cmd.includes("--help") || cmd.includes("--version")) {
               usedHelp = true;
             }
 
+            // Check for schema subcommand usage
+            if (cmd.match(/actions\.mjs\s+schema\b/)) {
+              usedSchema = true;
+              if (firstUsefulTurn === null) {
+                schemaBeforeFirstAction = true;
+              }
+            }
+
             // Check for source inspection
-            if (
-              cmd.match(/cat\s+.*actions\.mjs/) ||
-              cmd.match(/head\s+.*actions\.mjs/) ||
-              cmd.match(/less\s+.*actions\.mjs/) ||
-              cmd.match(/wc\s+.*actions\.mjs/) ||
-              cmd.includes("which notion") ||
-              cmd.includes("type notion") ||
-              cmd.includes("file actions")
-            ) {
+            if (isSourceInspectionBash(cmd)) {
               usedSourceInspection = true;
+              if (firstUsefulTurn === null) {
+                sourceInspectionBeforeFirstAction = true;
+              }
             }
 
             // Extract action name from CLI calls
             const action = extractActionsFromBashCommand(cmd);
+            const isSchemaOrHelp = cmd.match(/actions\.mjs\s+(schema|help)\b/);
             if (action && USEFUL_ACTIONS.has(action)) {
               actionSequence.push(action);
               if (firstUsefulTurn === null) {
                 firstUsefulTurn = turnIndex + 1; // 1-indexed
               }
-            } else if (action === null && !cmd.includes("--help")) {
+            } else if (action === null && !cmd.includes("--help") && !isSchemaOrHelp) {
               // Non-actions.mjs Bash call before first useful turn = discovery
               if (firstUsefulTurn === null) {
                 discoveryTurns++;
@@ -169,11 +225,14 @@ function analyzeSession(filePath, label) {
             }
           }
 
-          // Check for Read tool on actions.mjs (source inspection)
+          // Check for Read tool on source files
           if (block.type === "tool_use" && block.name === "Read") {
             const path = block.input?.file_path || "";
-            if (path.includes("actions.mjs")) {
+            if (isSourceInspectionRead(path)) {
               usedSourceInspection = true;
+              if (firstUsefulTurn === null) {
+                sourceInspectionBeforeFirstAction = true;
+              }
             }
           }
         }
@@ -196,9 +255,7 @@ function analyzeSession(filePath, label) {
   const intended = scenario ? INTENDED_WORKFLOWS[scenario] : null;
   let intendedWorkflowMatch = false;
   if (intended && actionSequence.length > 0) {
-    // Deduplicate consecutive identical actions for matching
     const deduped = actionSequence.filter((a, i) => i === 0 || a !== actionSequence[i - 1]);
-    // Check if the actual sequence contains all intended actions in order
     let idx = 0;
     for (const action of deduped) {
       if (idx < intended.length && action === intended[idx]) {
@@ -206,6 +263,33 @@ function analyzeSession(filePath, label) {
       }
     }
     intendedWorkflowMatch = idx === intended.length;
+  }
+
+  // Compute mismatch_reason when workflow doesn't match
+  let mismatchReason = null;
+  if (!intendedWorkflowMatch && intended) {
+    if (actionSequence.length === 0) {
+      mismatchReason = "no_useful_action";
+    } else if (sourceInspectionBeforeFirstAction) {
+      mismatchReason = "source_inspection_first";
+    } else if (schemaBeforeFirstAction) {
+      mismatchReason = "schema_probe_first";
+    } else {
+      // Check if intended is a subsequence of the raw action sequence
+      let idx = 0;
+      for (const action of actionSequence) {
+        if (idx < intended.length && action === intended[idx]) {
+          idx++;
+        }
+      }
+      const hasIntendedSubsequence = idx === intended.length;
+
+      if (hasIntendedSubsequence) {
+        mismatchReason = "extra_retries";
+      } else {
+        mismatchReason = "alternative_action";
+      }
+    }
   }
 
   return {
@@ -216,10 +300,12 @@ function analyzeSession(filePath, label) {
     discovery_turns: discoveryTurns,
     action_sequence: actionSequence,
     used_help: usedHelp,
+    used_schema: usedSchema,
     used_source_inspection: usedSourceInspection,
     intended_workflow_match: intendedWorkflowMatch,
     intended_workflow: intended ? intended.join(" -> ") : null,
     actual_workflow: actionSequence.length > 0 ? actionSequence.join(" -> ") : null,
+    mismatch_reason: mismatchReason,
   };
 }
 
@@ -245,6 +331,7 @@ function computeAggregates(results) {
   const workflowAdherence = workflowChecked.length > 0 ? workflowMatch / workflowChecked.length : null;
 
   const helpRate = nacResults.filter((r) => r.used_help).length / nacResults.length;
+  const schemaRate = nacResults.filter((r) => r.used_schema).length / nacResults.length;
   const sourceRate = nacResults.filter((r) => r.used_source_inspection).length / nacResults.length;
 
   return {
@@ -258,6 +345,7 @@ function computeAggregates(results) {
     workflow_matched: workflowMatch,
     workflow_checked: workflowChecked.length,
     help_rate: Math.round(helpRate * 100) / 100,
+    schema_usage_rate: Math.round(schemaRate * 100) / 100,
     source_inspection_rate: Math.round(sourceRate * 100) / 100,
   };
 }
@@ -286,13 +374,13 @@ function main() {
     if (r.action_sequence.length > 0) {
       console.log(`${"".padEnd(17)} actions: ${r.action_sequence.join(" -> ")}`);
     }
+    if (r.mismatch_reason) {
+      console.log(`${"".padEnd(17)} reason:  ${r.mismatch_reason}`);
+    }
   }
 
   if (aggregates) {
     console.log("\n── Aggregates ──");
-    console.log(
-      `  Trigger rate:           ${(aggregates.trigger_rate * 100).toFixed(0)}% (${aggregates.triggered}/${aggregates.total_sessions})`,
-    );
     console.log(
       `  First useful turn:      median=${aggregates.first_useful_turn_median}, p90=${aggregates.first_useful_turn_p90}`,
     );
@@ -302,6 +390,7 @@ function main() {
       );
     }
     console.log(`  Help usage rate:        ${(aggregates.help_rate * 100).toFixed(0)}%`);
+    console.log(`  Schema usage rate:      ${(aggregates.schema_usage_rate * 100).toFixed(0)}%`);
     console.log(`  Source inspection rate:  ${(aggregates.source_inspection_rate * 100).toFixed(0)}%`);
   }
 

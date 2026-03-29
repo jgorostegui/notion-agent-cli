@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # CLI benchmark wrapper: isolated HOME with notion-agent-cli plugin, empty workdir.
+# Plugin is installed in this HOME via marketplace (not --plugin-dir).
 ORIG_HOME="$HOME"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PLUGIN_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 export HOME="$ORIG_HOME/.claude-bench-actions"
 cd "$SCRIPT_DIR/workdir"
-claude --plugin-dir "$PLUGIN_DIR" "$@"
+claude "$@"
