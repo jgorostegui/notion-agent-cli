@@ -22,7 +22,7 @@
  *   - turns count
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 // ── Arg parsing ──────────────────────────────────────────────────────────────

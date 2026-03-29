@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Pre-commit hook: lint staged JS + block secrets.
+# Install: git config core.hooksPath .githooks
+
+set -euo pipefail
+
+# ── Lint staged JS files ──────────────────────────────────────────────────────
+STAGED_JS=$(git diff --cached --name-only --diff-filter=ACMR -- '*.mjs' '*.js')
+if [ -n "$STAGED_JS" ]; then
+    npx biome check --no-errors-on-unmatched $STAGED_JS || {
+        echo ""
+        echo "Fix with: npm run lint:fix"
+        exit 1
+    }
+fi
+
+# ── Block secrets in staged content ───────────────────────────────────────────
+SECRETS=$(git diff --cached --diff-filter=ACMR -U0 -- . \
+    ':!*.md' ':!.env.example' ':!*.png' ':!*.jpg' \
+    | grep -E '^\+' \
+    | grep -Ei 'ntn_[A-Za-z0-9]|NOTION_TOKEN\s*=\s*"?ntn_' \
+    | head -5) || true
+
+if [ -n "$SECRETS" ]; then
+    echo "Blocked: staged content contains what looks like a Notion token."
+    echo ""
+    echo "$SECRETS"
+    echo ""
+    echo "If false positive: git commit --no-verify"
+    exit 1
+fi

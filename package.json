@@ -4,6 +4,7 @@
   "type": "module",
   "main": "scripts/actions.mjs",
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
     "setup": "node scripts/setup.mjs",
     "setup:status": "node scripts/setup.mjs --status",
     "test": "node --test tests/**/*.test.mjs tests/**/*.prop.mjs",
