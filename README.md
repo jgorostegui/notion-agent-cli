@@ -1,6 +1,6 @@
 # Notion Agent CLI
 
-[![Release](https://img.shields.io/github/v/release/jgorostegui/notion-agent-cli?color=3178c6)](https://github.com/jgorostegui/notion-agent-cli/releases)
+[![Version](https://img.shields.io/github/v/tag/jgorostegui/notion-agent-cli?sort=semver&label=version&color=3178c6)](https://github.com/jgorostegui/notion-agent-cli/tags)
 [![CI](https://github.com/jgorostegui/notion-agent-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/jgorostegui/notion-agent-cli/actions/workflows/ci.yml)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-44cc11)](package.json)
 [![License](https://img.shields.io/badge/license-MIT-3178c6)](LICENSE)
