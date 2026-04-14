@@ -1,7 +1,7 @@
 {
   "scenarios": {
     "S1": {
-      "NAC (Sonnet)": {
+      "Notion Agent CLI (Sonnet)": {
         "cost_mean": 0.079953,
         "cost_std": 0.000517,
         "cost_ci_lo": 0.079311,
@@ -17,7 +17,7 @@
         "turns_mean": 4.0,
         "n": 5
       },
-      "NAC (Opus)": {
+      "Notion Agent CLI (Opus)": {
         "cost_mean": 0.132625,
         "cost_std": 0.001443,
         "cost_ci_lo": 0.130833,
@@ -35,7 +35,7 @@
       }
     },
     "S2": {
-      "NAC (Sonnet)": {
+      "Notion Agent CLI (Sonnet)": {
         "cost_mean": 0.055303,
         "cost_std": 0.000538,
         "cost_ci_lo": 0.054634,
@@ -51,7 +51,7 @@
         "turns_mean": 13.8,
         "n": 5
       },
-      "NAC (Opus)": {
+      "Notion Agent CLI (Opus)": {
         "cost_mean": 0.119442,
         "cost_std": 0.037866,
         "cost_ci_lo": 0.072425,
@@ -69,7 +69,7 @@
       }
     },
     "S3": {
-      "NAC (Sonnet)": {
+      "Notion Agent CLI (Sonnet)": {
         "cost_mean": 0.085644,
         "cost_std": 0.007889,
         "cost_ci_lo": 0.075849,
@@ -85,7 +85,7 @@
         "turns_mean": 4.2,
         "n": 5
       },
-      "NAC (Opus)": {
+      "Notion Agent CLI (Opus)": {
         "cost_mean": 0.082794,
         "cost_std": 0.023454,
         "cost_ci_lo": 0.053672,
@@ -103,7 +103,7 @@
       }
     },
     "S4": {
-      "NAC (Sonnet)": {
+      "Notion Agent CLI (Sonnet)": {
         "cost_mean": 0.03901,
         "cost_std": 3.2e-05,
         "cost_ci_lo": 0.038971,
@@ -119,7 +119,7 @@
         "turns_mean": 3.0,
         "n": 5
       },
-      "NAC (Opus)": {
+      "Notion Agent CLI (Opus)": {
         "cost_mean": 0.064505,
         "cost_std": 0.000785,
         "cost_ci_lo": 0.06353,
@@ -137,7 +137,7 @@
       }
     },
     "S5": {
-      "NAC (Sonnet)": {
+      "Notion Agent CLI (Sonnet)": {
         "cost_mean": 0.050404,
         "cost_std": 0.000349,
         "cost_ci_lo": 0.04997,
@@ -153,7 +153,7 @@
         "turns_mean": 4.0,
         "n": 5
       },
-      "NAC (Opus)": {
+      "Notion Agent CLI (Opus)": {
         "cost_mean": 0.081355,
         "cost_std": 0.000246,
         "cost_ci_lo": 0.08105,
@@ -171,7 +171,7 @@
       }
     },
     "S6": {
-      "NAC (Sonnet)": {
+      "Notion Agent CLI (Sonnet)": {
         "cost_mean": 0.050308,
         "cost_std": 0.000514,
         "cost_ci_lo": 0.049669,
@@ -187,7 +187,7 @@
         "turns_mean": 6.8,
         "n": 5
       },
-      "NAC (Opus)": {
+      "Notion Agent CLI (Opus)": {
         "cost_mean": 0.085282,
         "cost_std": 0.001252,
         "cost_ci_lo": 0.083728,
@@ -205,7 +205,7 @@
       }
     },
     "S7": {
-      "NAC (Sonnet)": {
+      "Notion Agent CLI (Sonnet)": {
         "cost_mean": 0.039959,
         "cost_std": 0.00015,
         "cost_ci_lo": 0.039773,
@@ -221,7 +221,7 @@
         "turns_mean": 5.0,
         "n": 5
       },
-      "NAC (Opus)": {
+      "Notion Agent CLI (Opus)": {
         "cost_mean": 0.064938,
         "cost_std": 2.2e-05,
         "cost_ci_lo": 0.06491,
@@ -239,7 +239,7 @@
       }
     },
     "S8": {
-      "NAC (Sonnet)": {
+      "Notion Agent CLI (Sonnet)": {
         "cost_mean": 0.042831,
         "cost_std": 0.000809,
         "cost_ci_lo": 0.041827,
@@ -255,7 +255,7 @@
         "turns_mean": 4.0,
         "n": 5
       },
-      "NAC (Opus)": {
+      "Notion Agent CLI (Opus)": {
         "cost_mean": 0.072066,
         "cost_std": 0.001496,
         "cost_ci_lo": 0.070209,
@@ -273,7 +273,7 @@
       }
     },
     "S9": {
-      "NAC (Sonnet)": {
+      "Notion Agent CLI (Sonnet)": {
         "cost_mean": 0.074418,
         "cost_std": 0.007347,
         "cost_ci_lo": 0.065296,
@@ -289,7 +289,7 @@
         "turns_mean": 6.6,
         "n": 5
       },
-      "NAC (Opus)": {
+      "Notion Agent CLI (Opus)": {
         "cost_mean": 0.131749,
         "cost_std": 0.062132,
         "cost_ci_lo": 0.054602,
@@ -307,7 +307,7 @@
       }
     },
     "S10": {
-      "NAC (Sonnet)": {
+      "Notion Agent CLI (Sonnet)": {
         "cost_mean": 0.088255,
         "cost_std": 0.01938,
         "cost_ci_lo": 0.064191,
@@ -323,7 +323,7 @@
         "turns_mean": 4.0,
         "n": 5
       },
-      "NAC (Opus)": {
+      "Notion Agent CLI (Opus)": {
         "cost_mean": 0.225199,
         "cost_std": 0.047409,
         "cost_ci_lo": 0.166333,

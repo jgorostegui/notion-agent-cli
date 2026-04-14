@@ -1,26 +1,34 @@
 # Notion Agent CLI
 
+[![Release](https://img.shields.io/github/v/release/jgorostegui/notion-agent-cli?color=3178c6)](https://github.com/jgorostegui/notion-agent-cli/releases)
+[![CI](https://github.com/jgorostegui/notion-agent-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/jgorostegui/notion-agent-cli/actions/workflows/ci.yml)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-44cc11)](package.json)
+[![License](https://img.shields.io/badge/license-MIT-3178c6)](LICENSE)
+
 Notion Agent CLI gives Claude Code a smaller, more usable interface for Notion.
 
-Instead of making the model juggle raw block JSON, pagination, and multi-step API flows, it provides task-level actions with markdown in and markdown out. It is built for the work agents actually do: reading pages, querying databases, rewriting sections, copying and modifying content, merging pages, and updating batches of entries without turning every task into a chain of low-level calls.
+Instead of making the model carry verbose tool results, pagination, schema state, and multi-step API flows through the conversation, it provides task-level actions with compact markdown-shaped inputs and outputs. It is built for the work agents actually do: reading pages, querying databases, rewriting sections, copying and modifying content, merging pages, and updating batches of entries without turning every task into a chain of lower-level calls.
+
+> [!NOTE]
+> **Why this exists:** [The cost of the wrong abstraction in agent tools](https://jgorostegui.github.io/blog/wrong-abstraction-agent-tools/) — the design thesis and benchmark behind this tool.
 
 ## Where It Fits
 
-Use the official Notion MCP server if you want raw endpoint access and do not mind letting the model orchestrate each API call itself.
+Use the official Notion MCP server if you want hosted OAuth, broad workspace coverage, and Notion's maintained tool surface.
 
 Use `notion-agent-cli` if you want a smaller, task-oriented interface that:
 
-- reads pages as markdown instead of raw block JSON
-- lets the model write markdown instead of Notion block payloads
+- returns compact, task-shaped results by default
+- lets the model work with markdown-shaped content where that is the useful representation
 - hides pagination, chunking, rate limiting, and common multi-step workflows behind one command
 
 | | Notion MCP | Notion Agent CLI |
 |---|---|---|
-| Main shape | Endpoint-level tools | Task-level CLI actions |
-| Read output | Raw Notion JSON | Markdown by default |
-| Write input | Block JSON assembled by the model | Markdown |
-| Compound workflows | The model coordinates each step | The CLI does the coordination |
-| Best use case | Full API coverage, low-level control | Common workspace work with fewer turns |
+| Main shape | Hosted MCP tools | Task-level CLI actions |
+| Read output | Structured tool results, with markdown-like content in places | Compact markdown-shaped output by default |
+| Write input | MCP tool inputs, with markdown/content strings supported in places | Markdown-shaped content plus task arguments |
+| Compound workflows | The model or official commands coordinate the steps | The CLI does the coordination |
+| Best use case | Official hosted access and broad coverage | Common workspace work with fewer turns |
 
 ## What You Can Do
 
@@ -100,7 +108,7 @@ node scripts/actions.mjs batchSetProperties '["id1","id2","id3"]' '{"Status":"Do
 
 ## Benchmark Snapshot
 
-The repository includes a controlled benchmark comparing Notion Agent CLI with the official Notion MCP interface across 10 scenarios and 2 Claude models (Sonnet 4.6, Opus 4.6). The task-level interface consistently reduced both turn count and session cost, with the largest gains on compound workflows. The interface also provides a self-describing `schema` command so the model can look up exact action signatures without reading source code.
+The repository includes a controlled benchmark comparing Notion Agent CLI with the official Notion MCP tool path across 10 scenarios and 2 Claude models (Sonnet 4.6, Opus 4.6). The task-level interface consistently reduced both turn count and session cost, with the largest gains on compound workflows. The benchmark used the official Claude Code Notion plugin v0.1.0 pointed at Notion's hosted MCP server, but forced the MCP condition to use Notion MCP tools rather than every bundled slash command or future hosted MCP version. The interface also provides a self-describing `schema` command so the model can look up exact action signatures without reading source code.
 
 For per-scenario numbers, confidence intervals, and full methodology, see [EVALUATION.md](EVALUATION.md).
 
